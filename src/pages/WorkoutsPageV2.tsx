@@ -2,22 +2,175 @@ import { CalendarDays, CheckCircle2, ChevronRight, CloudOff, Dumbbell, Pencil, P
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { dateInTimezone } from '../lib/date';
+import { useSelectedDate } from '../context/SelectedDateContext';
+import { prettyDate } from '../lib/date';
 import { cacheKeys, cacheSessionSummary, getCached, queueMutation, saveMutation, setCached, syncPendingMutations } from '../lib/offline';
 import { getSupabase } from '../lib/supabase';
 
-type Routine={id:string;name:string;day_order:number;routine_exercises:Array<{id:string;position:number;target_sets:number;rep_min:number;rep_max:number;rir_target:number;exercise:{id:number;name:string;primary_muscle:string;equipment:string}}>};
-type PersonalRecord={exerciseId:number;exerciseName:string;weightKg:number;reps:number;estimatedOneRepMax:number;date:string};
+type Routine = { id: string; name: string; day_order: number; routine_exercises: Array<{ id: string; position: number; target_sets: number; rep_min: number; rep_max: number; rir_target: number; exercise: { id: number; name: string; primary_muscle: string; equipment: string } }> };
+type PersonalRecord = { exerciseId: number; exerciseName: string; weightKg: number; reps: number; estimatedOneRepMax: number; date: string };
 
-function calculatePersonalRecords(rows:any[]):PersonalRecord[]{const records=new Map<number,PersonalRecord>();for(const session of rows)for(const workoutExercise of session.workout_exercises??[]){const exercise=Array.isArray(workoutExercise.exercise)?workoutExercise.exercise[0]:workoutExercise.exercise;if(!exercise)continue;for(const set of workoutExercise.workout_sets??[]){const weightKg=Number(set.weight_kg),reps=Number(set.reps);if(!set.completed||!Number.isFinite(weightKg)||!Number.isFinite(reps)||weightKg<=0||reps<=0)continue;const estimatedOneRepMax=weightKg*(1+reps/30),current=records.get(exercise.id);if(!current||estimatedOneRepMax>current.estimatedOneRepMax)records.set(exercise.id,{exerciseId:exercise.id,exerciseName:exercise.name,weightKg,reps,estimatedOneRepMax,date:session.session_date});}}return[...records.values()].sort((a,b)=>b.estimatedOneRepMax-a.estimatedOneRepMax);}
+function calculatePersonalRecords(rows: any[]): PersonalRecord[] {
+  const records = new Map<number, PersonalRecord>();
+  for (const session of rows) for (const workoutExercise of session.workout_exercises ?? []) {
+    const exercise = Array.isArray(workoutExercise.exercise) ? workoutExercise.exercise[0] : workoutExercise.exercise;
+    if (!exercise) continue;
+    for (const set of workoutExercise.workout_sets ?? []) {
+      const weightKg = Number(set.weight_kg), reps = Number(set.reps);
+      if (!set.completed || !Number.isFinite(weightKg) || !Number.isFinite(reps) || weightKg <= 0 || reps <= 0) continue;
+      const estimatedOneRepMax = weightKg * (1 + reps / 30);
+      const current = records.get(exercise.id);
+      if (!current || estimatedOneRepMax > current.estimatedOneRepMax) records.set(exercise.id, { exerciseId: exercise.id, exerciseName: exercise.name, weightKg, reps, estimatedOneRepMax, date: session.session_date });
+    }
+  }
+  return [...records.values()].sort((a, b) => b.estimatedOneRepMax - a.estimatedOneRepMax);
+}
 
-export function WorkoutsPageV2(){
- const supabase=getSupabase(),navigate=useNavigate(),{user,profile}=useAuth();
- const[routines,setRoutines]=useState<Routine[]>([]),[sessions,setSessions]=useState<any[]>([]),[records,setRecords]=useState<PersonalRecord[]>([]),[loading,setLoading]=useState(true),[starting,setStarting]=useState<string|null>(null),[updatingSession,setUpdatingSession]=useState<string|null>(null),[error,setError]=useState('');
- const load=async()=>{if(!user)return;setLoading(true);setError('');const[cachedRoutines,cachedSessions,cachedRecords]=await Promise.all([getCached<Routine[]>(cacheKeys.routines(user.id)),getCached<any[]>(cacheKeys.sessions(user.id)),getCached<PersonalRecord[]>(`personal-records:${user.id}`)]);if(cachedRoutines)setRoutines(cachedRoutines);if(cachedSessions)setSessions(cachedSessions);if(cachedRecords)setRecords(cachedRecords);setLoading(false);if(!navigator.onLine){if(!cachedRoutines?.length)setError('Conéctate una vez para descargar tus rutinas a este dispositivo.');return;}const[routineResult,sessionResult,recordResult]=await Promise.all([supabase.from('routine_templates').select(`id,name,day_order,routine_exercises(id,position,target_sets,rep_min,rep_max,rir_target,exercise:exercise_library(id,name,primary_muscle,equipment))`).eq('user_id',user.id).order('day_order'),supabase.from('workout_sessions').select('id,routine_id,session_date,finished_at,started_at').eq('user_id',user.id).order('started_at',{ascending:false}).limit(40),supabase.from('workout_sessions').select(`session_date,workout_exercises(exercise:exercise_library(id,name),workout_sets(weight_kg,reps,completed))`).eq('user_id',user.id).not('finished_at','is',null).order('session_date',{ascending:false}).limit(100)]);if(routineResult.error){if(!cachedRoutines?.length)setError(routineResult.error.message);return;}const sorted=((routineResult.data??[])as unknown as Routine[]).map(r=>({...r,routine_exercises:[...(r.routine_exercises??[])].sort((a,b)=>a.position-b.position)})),nextSessions=sessionResult.data??[],nextRecords=calculatePersonalRecords(recordResult.data??[]);setRoutines(sorted);setSessions(nextSessions);setRecords(nextRecords);await Promise.all([setCached(cacheKeys.routines(user.id),sorted),setCached(cacheKeys.sessions(user.id),nextSessions),setCached(`personal-records:${user.id}`,nextRecords)]);};
- useEffect(()=>{void load();},[user]);
- const startRoutine=async(routine:Routine)=>{if(!user||!profile)return;setStarting(routine.id);setError('');const sessionId=crypto.randomUUID(),sessionDate=dateInTimezone(profile.timezone),startedAt=new Date().toISOString();const workoutExercises=routine.routine_exercises.map(item=>({id:crypto.randomUUID(),session_id:sessionId,planned_routine_exercise_id:item.id,exercise_id:item.exercise.id,position:item.position,exercise:item.exercise,planned:{target_sets:item.target_sets,rep_min:item.rep_min,rep_max:item.rep_max,rir_target:item.rir_target},workout_sets:Array.from({length:item.target_sets},(_,index)=>({id:crypto.randomUUID(),set_number:index+1,weight_kg:null,reps:null,rir:null,completed:false}))}));const localSession={id:sessionId,user_id:user.id,routine_id:routine.id,session_date:sessionDate,started_at:startedAt,finished_at:null,notes:null,routine:{name:routine.name},workout_exercises:workoutExercises};await Promise.all([setCached(cacheKeys.workoutSession(sessionId),localSession),cacheSessionSummary(user.id,{id:sessionId,routine_id:routine.id,session_date:sessionDate,started_at:startedAt,finished_at:null})]);await queueMutation({operation:'upsert',table:'workout_sessions',dedupeKey:`session:${sessionId}`,payload:{id:sessionId,user_id:user.id,routine_id:routine.id,session_date:sessionDate,started_at:startedAt,finished_at:null,notes:null}});await queueMutation({operation:'upsert',table:'workout_exercises',dedupeKey:`session-exercises:${sessionId}`,payload:workoutExercises.map(item=>({id:item.id,session_id:sessionId,planned_routine_exercise_id:item.planned_routine_exercise_id,exercise_id:item.exercise_id,position:item.position}))});await queueMutation({operation:'upsert',table:'workout_sets',dedupeKey:`session-sets:${sessionId}`,payload:workoutExercises.flatMap(exercise=>exercise.workout_sets.map(set=>({...set,workout_exercise_id:exercise.id})))});if(navigator.onLine)await syncPendingMutations();navigate(`/sesion/${sessionId}`);};
- const unmarkRoutine=async(session:any)=>{if(!user||!session?.id)return;setUpdatingSession(session.id);const next=sessions.map(item=>item.id===session.id?{...item,finished_at:null}:item);setSessions(next);await Promise.all([setCached(cacheKeys.sessions(user.id),next),cacheSessionSummary(user.id,{...session,finished_at:null})]);await saveMutation({operation:'update',table:'workout_sessions',payload:{finished_at:null,updated_at:new Date().toISOString()},match:{id:session.id},dedupeKey:`unfinish-session:${session.id}`});setUpdatingSession(null);};
- if(loading)return <div className="page-loading">Cargando tus rutinas…</div>;
- return <div className="page-grid"><section className="page-heading simple"><div><p className="eyebrow">ENTRENAMIENTO</p><h1>Tu programa · {routines.length} día{routines.length===1?'':'s'}</h1><p className="muted">PPL, Full Body, Torso/Pierna o cualquier combinación.</p></div><div className="button-row"><button className="secondary-button" onClick={load}><RefreshCw size={17}/> Actualizar</button><Link className="primary-button" to="/rutinas"><Pencil size={17}/> Editar programa</Link></div></section>{!navigator.onLine&&<div className="alert success"><CloudOff size={16}/> Modo offline: los cambios se sincronizarán al volver internet.</div>}{error&&<div className="alert error">{error}</div>}<section className="routine-grid">{routines.map((routine,index)=>{const last=sessions.find(session=>session.routine_id===routine.id),isFinished=Boolean(last?.finished_at),isInProgress=Boolean(last&&!last.finished_at);return <article className="routine-card" key={routine.id}><div className="routine-card-top"><div className="metric-icon"><Dumbbell/></div><div><span>Día {index+1}</span><h2>{routine.name}</h2></div>{isFinished?<span className="status-chip green"><CheckCircle2 size={14}/> Hecha</span>:isInProgress?<span className="status-chip orange">En curso</span>:<span className="status-chip">Disponible</span>}</div><ol>{routine.routine_exercises.map(item=><li key={item.id}><span>{item.exercise.name}</span><small>{item.target_sets} × {item.rep_min}–{item.rep_max} · RIR {item.rir_target}</small></li>)}</ol>{!routine.routine_exercises.length&&<div className="alert error">Agrega al menos un ejercicio desde “Editar programa”.</div>}{last&&<p className="last-session"><CalendarDays size={15}/> Última: {last.session_date}</p>}<div className="routine-action-row"><button className="primary-button" onClick={()=>isInProgress?navigate(`/sesion/${last.id}`):startRoutine(routine)} disabled={starting===routine.id||!routine.routine_exercises.length}><Play size={17}/> {starting===routine.id?'Preparando…':isInProgress?'Continuar rutina':'Iniciar rutina'} <ChevronRight size={17}/></button>{isFinished&&<button className="secondary-button routine-unmark" onClick={()=>unmarkRoutine(last)} disabled={updatingSession===last.id}><RotateCcw size={16}/> {updatingSession===last.id?'Desmarcando…':'Desmarcar rutina'}</button>}</div></article>;})}</section><section className="panel records-panel"><div className="section-title"><div><p className="eyebrow">PR · PERSONAL RECORDS</p><h2>Récords personales</h2></div><Trophy/></div><p className="muted small">Se generan con tus series completadas y comparan el 1RM estimado por Epley.</p>{!records.length?<div className="editor-empty"><Trophy/><span>Completa series con kilos y repeticiones para generar PR.</span></div>:<div className="records-grid">{records.slice(0,12).map(record=><article className="record-card" key={record.exerciseId}><div><span>{record.exerciseName}</span><strong>{record.weightKg} kg × {record.reps}</strong></div><div><small>1RM estimado</small><strong>{record.estimatedOneRepMax.toFixed(1)} kg</strong><em>{record.date}</em></div></article>)}</div>}</section></div>;
+export function WorkoutsPageV2() {
+  const supabase = getSupabase();
+  const navigate = useNavigate();
+  const { user, profile } = useAuth();
+  const { selectedDate, isToday, resetToToday } = useSelectedDate();
+  const [routines, setRoutines] = useState<Routine[]>([]);
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [records, setRecords] = useState<PersonalRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [starting, setStarting] = useState<string | null>(null);
+  const [updatingSession, setUpdatingSession] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const sessionCacheKey = user ? `sessions:${user.id}:${selectedDate}` : `sessions:anonymous:${selectedDate}`;
+
+  const persistSelectedDateSessions = async (next: any[]) => {
+    setSessions(next);
+    await setCached(sessionCacheKey, next);
+  };
+
+  const load = async () => {
+    if (!user) return;
+    setLoading(true);
+    setError('');
+    const [cachedRoutines, cachedDateSessions, cachedAllSessions, cachedRecords] = await Promise.all([
+      getCached<Routine[]>(cacheKeys.routines(user.id)),
+      getCached<any[]>(sessionCacheKey),
+      getCached<any[]>(cacheKeys.sessions(user.id)),
+      getCached<PersonalRecord[]>(`personal-records:${user.id}`)
+    ]);
+    const fallbackSessions = cachedDateSessions ?? (cachedAllSessions ?? []).filter((session) => session.session_date === selectedDate);
+    if (cachedRoutines) setRoutines(cachedRoutines);
+    setSessions(fallbackSessions);
+    if (cachedRecords) setRecords(cachedRecords);
+    setLoading(false);
+
+    if (!navigator.onLine) {
+      if (!cachedRoutines?.length) setError('Conéctate una vez para descargar tus rutinas a este dispositivo.');
+      return;
+    }
+
+    const [routineResult, sessionResult, recordResult] = await Promise.all([
+      supabase.from('routine_templates').select(`id,name,day_order,routine_exercises(id,position,target_sets,rep_min,rep_max,rir_target,exercise:exercise_library(id,name,primary_muscle,equipment))`).eq('user_id', user.id).order('day_order'),
+      supabase.from('workout_sessions').select('id,routine_id,session_date,finished_at,started_at').eq('user_id', user.id).eq('session_date', selectedDate).order('started_at', { ascending: false }),
+      supabase.from('workout_sessions').select(`session_date,workout_exercises(exercise:exercise_library(id,name),workout_sets(weight_kg,reps,completed))`).eq('user_id', user.id).not('finished_at', 'is', null).order('session_date', { ascending: false }).limit(100)
+    ]);
+
+    if (routineResult.error) {
+      if (!cachedRoutines?.length) setError(routineResult.error.message);
+      return;
+    }
+
+    const sorted = ((routineResult.data ?? []) as unknown as Routine[]).map((routine) => ({ ...routine, routine_exercises: [...(routine.routine_exercises ?? [])].sort((a, b) => a.position - b.position) }));
+    const nextSessions = sessionResult.data ?? [];
+    const nextRecords = calculatePersonalRecords(recordResult.data ?? []);
+    setRoutines(sorted);
+    setSessions(nextSessions);
+    setRecords(nextRecords);
+    await Promise.all([
+      setCached(cacheKeys.routines(user.id), sorted),
+      setCached(sessionCacheKey, nextSessions),
+      setCached(`personal-records:${user.id}`, nextRecords)
+    ]);
+  };
+
+  useEffect(() => { void load(); }, [user, selectedDate]);
+
+  const startRoutine = async (routine: Routine) => {
+    if (!user || !profile) return;
+    setStarting(routine.id);
+    setError('');
+    const sessionId = crypto.randomUUID();
+    const sessionDate = selectedDate;
+    const startedAt = new Date().toISOString();
+    const workoutExercises = routine.routine_exercises.map((item) => ({
+      id: crypto.randomUUID(), session_id: sessionId, planned_routine_exercise_id: item.id,
+      exercise_id: item.exercise.id, position: item.position, exercise: item.exercise,
+      planned: { target_sets: item.target_sets, rep_min: item.rep_min, rep_max: item.rep_max, rir_target: item.rir_target },
+      workout_sets: Array.from({ length: item.target_sets }, (_, index) => ({ id: crypto.randomUUID(), set_number: index + 1, weight_kg: null, reps: null, rir: null, completed: false }))
+    }));
+    const localSession = { id: sessionId, user_id: user.id, routine_id: routine.id, session_date: sessionDate, started_at: startedAt, finished_at: null, notes: null, routine: { name: routine.name }, workout_exercises: workoutExercises };
+    const summary = { id: sessionId, routine_id: routine.id, session_date: sessionDate, started_at: startedAt, finished_at: null };
+    const nextDateSessions = [summary, ...sessions.filter((session) => session.id !== sessionId)];
+    await Promise.all([
+      setCached(cacheKeys.workoutSession(sessionId), localSession),
+      cacheSessionSummary(user.id, summary),
+      persistSelectedDateSessions(nextDateSessions)
+    ]);
+    await queueMutation({ operation: 'upsert', table: 'workout_sessions', dedupeKey: `session:${sessionId}`, payload: { id: sessionId, user_id: user.id, routine_id: routine.id, session_date: sessionDate, started_at: startedAt, finished_at: null, notes: null } });
+    await queueMutation({ operation: 'upsert', table: 'workout_exercises', dedupeKey: `session-exercises:${sessionId}`, payload: workoutExercises.map((item) => ({ id: item.id, session_id: sessionId, planned_routine_exercise_id: item.planned_routine_exercise_id, exercise_id: item.exercise_id, position: item.position })) });
+    await queueMutation({ operation: 'upsert', table: 'workout_sets', dedupeKey: `session-sets:${sessionId}`, payload: workoutExercises.flatMap((exercise) => exercise.workout_sets.map((set) => ({ ...set, workout_exercise_id: exercise.id }))) });
+    if (navigator.onLine) await syncPendingMutations();
+    setStarting(null);
+    navigate(`/sesion/${sessionId}`);
+  };
+
+  const unmarkRoutine = async (session: any) => {
+    if (!user || !session?.id) return;
+    setUpdatingSession(session.id);
+    const next = sessions.map((item) => item.id === session.id ? { ...item, finished_at: null } : item);
+    await Promise.all([
+      persistSelectedDateSessions(next),
+      cacheSessionSummary(user.id, { ...session, finished_at: null })
+    ]);
+    await saveMutation({ operation: 'update', table: 'workout_sessions', payload: { finished_at: null, updated_at: new Date().toISOString() }, match: { id: session.id }, dedupeKey: `unfinish-session:${session.id}` });
+    setUpdatingSession(null);
+  };
+
+  if (loading) return <div className="page-loading">Cargando tus rutinas…</div>;
+
+  return <div className="page-grid">
+    <section className="page-heading simple">
+      <div>
+        <p className="eyebrow">{isToday ? 'ENTRENAMIENTO DE HOY' : 'ASIGNANDO ENTRENAMIENTO ATRASADO'}</p>
+        <h1>{prettyDate(selectedDate)}</h1>
+        <p className="muted">Tu programa tiene {routines.length} día{routines.length === 1 ? '' : 's'}. La rutina que inicies quedará registrada en esta fecha.</p>
+      </div>
+      <div className="button-row">
+        {!isToday && <button className="secondary-button" onClick={resetToToday}><CalendarDays size={17} /> Volver a hoy</button>}
+        <button className="secondary-button" onClick={load}><RefreshCw size={17} /> Actualizar</button>
+        <Link className="primary-button" to="/rutinas"><Pencil size={17} /> Editar programa</Link>
+      </div>
+    </section>
+
+    {!isToday && <div className="selected-date-banner"><CalendarDays size={18} /><div><strong>Fecha histórica activa</strong><span>Seguirá seleccionada en toda la app hasta que presiones “Volver a hoy”.</span></div></div>}
+    {!navigator.onLine && <div className="alert success"><CloudOff size={16} /> Modo offline: los cambios se sincronizarán al volver internet.</div>}
+    {error && <div className="alert error">{error}</div>}
+
+    <section className="routine-grid">{routines.map((routine, index) => {
+      const assignedSession = sessions.find((session) => session.routine_id === routine.id);
+      const isFinished = Boolean(assignedSession?.finished_at);
+      const isInProgress = Boolean(assignedSession && !assignedSession.finished_at);
+      return <article className="routine-card" key={routine.id}>
+        <div className="routine-card-top"><div className="metric-icon"><Dumbbell /></div><div><span>Día {index + 1}</span><h2>{routine.name}</h2></div>{isFinished ? <span className="status-chip green"><CheckCircle2 size={14} /> Hecha</span> : isInProgress ? <span className="status-chip orange">En curso</span> : <span className="status-chip">Disponible</span>}</div>
+        <ol>{routine.routine_exercises.map((item) => <li key={item.id}><span>{item.exercise.name}</span><small>{item.target_sets} × {item.rep_min}–{item.rep_max} · RIR {item.rir_target}</small></li>)}</ol>
+        {!routine.routine_exercises.length && <div className="alert error">Agrega al menos un ejercicio desde “Editar programa”.</div>}
+        {assignedSession && <p className="last-session"><CalendarDays size={15} /> Asignada a: {assignedSession.session_date}</p>}
+        <div className="routine-action-row">
+          <button className="primary-button" onClick={() => isInProgress ? navigate(`/sesion/${assignedSession.id}`) : startRoutine(routine)} disabled={starting === routine.id || !routine.routine_exercises.length || isFinished}><Play size={17} /> {starting === routine.id ? 'Preparando…' : isInProgress ? 'Continuar rutina' : isFinished ? 'Rutina completada' : 'Iniciar rutina'} <ChevronRight size={17} /></button>
+          {isFinished && <button className="secondary-button routine-unmark" onClick={() => unmarkRoutine(assignedSession)} disabled={updatingSession === assignedSession.id}><RotateCcw size={16} /> {updatingSession === assignedSession.id ? 'Desmarcando…' : 'Desmarcar rutina'}</button>}
+        </div>
+      </article>;
+    })}</section>
+
+    <section className="panel records-panel"><div className="section-title"><div><p className="eyebrow">PR · PERSONAL RECORDS</p><h2>Récords personales</h2></div><Trophy /></div><p className="muted small">Se generan con tus series completadas y comparan el 1RM estimado por Epley.</p>
+      {!records.length ? <div className="editor-empty"><Trophy /><span>Completa series con kilos y repeticiones para generar PR.</span></div> : <div className="records-grid">{records.slice(0, 12).map((record) => <article className="record-card" key={record.exerciseId}><div><span>{record.exerciseName}</span><strong>{record.weightKg} kg × {record.reps}</strong></div><div><small>1RM estimado</small><strong>{record.estimatedOneRepMax.toFixed(1)} kg</strong><em>{record.date}</em></div></article>)}</div>}
+    </section>
+  </div>;
 }
