@@ -5,6 +5,7 @@ import { clearAppConfig } from '../lib/config';
 import { detectTimezone } from '../lib/date';
 import { numberOrNull } from '../lib/helpers';
 import { getSupabase } from '../lib/supabase';
+import { cacheProfile, saveMutation } from '../lib/offline';
 import type { Profile } from '../types';
 
 export function SettingsPage() {
@@ -19,18 +20,26 @@ export function SettingsPage() {
 
   const save = async () => {
     setError(''); setMessage('');
-    const { error: saveError } = await supabase.from('profiles').update({
-      display_name: form.display_name,
-      timezone: form.timezone,
-      calories_target: form.calories_target,
-      protein_target: form.protein_target,
-      steps_target: form.steps_target,
-      weight_target: form.weight_target,
-      waist_target: form.waist_target,
-      updated_at: new Date().toISOString()
-    }).eq('id', user.id);
-    if (saveError) setError(saveError.message);
-    else { await refreshProfile(); setMessage('Metas guardadas.'); }
+    const next = { ...form, id: user.id };
+    await cacheProfile(next);
+    const result = await saveMutation({
+      operation: 'update',
+      table: 'profiles',
+      payload: {
+        display_name: next.display_name,
+        timezone: next.timezone,
+        calories_target: next.calories_target,
+        protein_target: next.protein_target,
+        steps_target: next.steps_target,
+        weight_target: next.weight_target,
+        waist_target: next.waist_target,
+        updated_at: new Date().toISOString()
+      },
+      match: { id: user.id },
+      dedupeKey: `profile:${user.id}`
+    });
+    await refreshProfile();
+    setMessage(result === 'synced' ? 'Metas guardadas y sincronizadas.' : 'Metas guardadas en el dispositivo. Se sincronizarán al volver internet.');
   };
 
   const exportData = async () => {
