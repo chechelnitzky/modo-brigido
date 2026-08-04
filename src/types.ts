@@ -42,4 +42,5 @@ export type Exercise = {
   primary_muscle: string;
   pattern: string;
   equipment: string;
+  user_id?: string | null;
 };
