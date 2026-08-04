@@ -1,6 +1,7 @@
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { SelectedDateProvider } from './context/SelectedDateContext';
 import { getAppConfig } from './lib/config';
 import { AuthPage } from './pages/AuthPage';
 import { NutritionPage } from './pages/NutritionPage';
@@ -16,16 +17,23 @@ function AuthenticatedApp() {
   const { session, loading } = useAuth();
   if (loading) return <div className="splash"><div className="brand-mark large">MB</div><p>Cargando Modo Brígido…</p></div>;
   if (!session) return <AuthPage />;
-  return <HashRouter><Routes><Route element={<Layout />}>
-    <Route path="/" element={<TodayPage />} />
-    <Route path="/entreno" element={<WorkoutsPageV2 />} />
-    <Route path="/sesion/:id" element={<WorkoutSessionPageV2 />} />
-    <Route path="/rutinas" element={<RoutineEditorPage />} />
-    <Route path="/nutricion" element={<NutritionPage />} />
-    <Route path="/progreso" element={<ProgressPage />} />
-    <Route path="/ajustes" element={<SettingsPage />} />
-    <Route path="*" element={<Navigate to="/" replace />} />
-  </Route></Routes></HashRouter>;
+  return (
+    <SelectedDateProvider>
+      <HashRouter><Routes><Route element={<Layout />}>
+        <Route path="/" element={<TodayPage />} />
+        <Route path="/entreno" element={<WorkoutsPageV2 />} />
+        <Route path="/sesion/:id" element={<WorkoutSessionPageV2 />} />
+        <Route path="/rutinas" element={<RoutineEditorPage />} />
+        <Route path="/nutricion" element={<NutritionPage />} />
+        <Route path="/progreso" element={<ProgressPage />} />
+        <Route path="/ajustes" element={<SettingsPage />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Route></Routes></HashRouter>
+    </SelectedDateProvider>
+  );
 }
 
-export default function App() { if (!getAppConfig()) return <SetupPage />; return <AuthProvider><AuthenticatedApp /></AuthProvider>; }
+export default function App() {
+  if (!getAppConfig()) return <SetupPage />;
+  return <AuthProvider><AuthenticatedApp /></AuthProvider>;
+}
