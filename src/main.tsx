@@ -6,6 +6,7 @@ import { startOfflineSync } from './lib/offline';
 import './styles.css';
 import './offline.css';
 import './features.css';
+import './selected-date-exercises.css';
 
 registerSW({ immediate: true });
 startOfflineSync();
