@@ -13,6 +13,13 @@ const TIMER_ALARM_ROUTINE_KEY = 'modo-brigido-timer-alarm-routine';
 const ALARM_REPEAT_MS = 4200;
 const AGGRESSIVE_VIBRATION = [450, 110, 450, 110, 850, 160, 450, 110, 450, 110, 1100];
 
+type ExtendedNotificationOptions = NotificationOptions & {
+  renotify?: boolean;
+  vibrate?: number[];
+  timestamp?: number;
+  actions?: Array<{ action: string; title: string; icon?: string }>;
+};
+
 export type TimerNotificationPermission = NotificationPermission | 'unsupported';
 
 function getAudioContext(): AudioContext | null {
@@ -263,7 +270,7 @@ async function showBackgroundNotification(routineName?: string, pulse = 1): Prom
   if (document.visibilityState === 'visible') return;
 
   const title = '🚨 ¡DESCANSO TERMINADO!';
-  const options: NotificationOptions = {
+  const options: ExtendedNotificationOptions = {
     body: routineName
       ? `${routineName}: vuelve ahora para la siguiente serie. Alarma ${pulse}.`
       : `Vuelve ahora para la siguiente serie. Alarma ${pulse}.`,
