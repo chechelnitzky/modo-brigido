@@ -8,7 +8,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icon-192.png', 'icon-512.png', 'app-config.js'],
+      includeAssets: ['icon-192.png', 'icon-512.png', 'app-config.js', 'notification-sw.js'],
       manifest: {
         name: 'Modo Brígido',
         short_name: 'Brígido',
@@ -23,6 +23,7 @@ export default defineConfig({
         ]
       },
       workbox: {
+        importScripts: ['notification-sw.js'],
         navigateFallbackDenylist: [/^\/auth/]
       }
     })
