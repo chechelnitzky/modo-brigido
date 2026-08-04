@@ -4,6 +4,7 @@ import { registerSW } from 'virtual:pwa-register';
 import App from './App';
 import { startOfflineSync } from './lib/offline';
 import './styles.css';
+import './offline.css';
 
 registerSW({ immediate: true });
 startOfflineSync();
