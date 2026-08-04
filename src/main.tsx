@@ -5,12 +5,9 @@ import App from './App';
 import { startOfflineSync } from './lib/offline';
 import './styles.css';
 import './offline.css';
+import './features.css';
 
 registerSW({ immediate: true });
 startOfflineSync();
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>
-);
+createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>);
