@@ -1,3 +1,5 @@
+export type Sex = 'male' | 'female';
+
 export type Profile = {
   id: string;
   display_name: string | null;
@@ -7,6 +9,11 @@ export type Profile = {
   steps_target: number;
   weight_target: number | null;
   waist_target: number | null;
+  sex: Sex | null;
+  birth_date: string | null;
+  height_cm: number | null;
+  neck_cm: number | null;
+  hip_cm: number | null;
 };
 
 export type DailyLog = {
@@ -15,6 +22,8 @@ export type DailyLog = {
   log_date: string;
   weight_kg: number | null;
   waist_cm: number | null;
+  neck_cm: number | null;
+  hip_cm: number | null;
   sleep_score: number | null;
   energy_score: number | null;
   hunger_score: number | null;
