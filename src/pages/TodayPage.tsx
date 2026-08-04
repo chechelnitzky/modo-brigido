@@ -5,8 +5,9 @@ import { BodyCompositionCard } from '../components/BodyCompositionCard';
 import { ProgressBar } from '../components/ProgressBar';
 import { ScoreRing } from '../components/ScoreRing';
 import { useAuth } from '../context/AuthContext';
+import { useSelectedDate } from '../context/SelectedDateContext';
 import { estimateBodyCompositionForLog } from '../lib/bodyFat';
-import { dateInTimezone, prettyDate } from '../lib/date';
+import { prettyDate } from '../lib/date';
 import { dailyScore, numberOrNull } from '../lib/helpers';
 import { cacheDailyLog, cacheKeys, cacheProfile, getCached, saveMutation } from '../lib/offline';
 import { getSupabase } from '../lib/supabase';
@@ -27,18 +28,12 @@ function Rating({ value, onChange }: { value: number | null; onChange: (value: n
 export function TodayPage() {
   const supabase = getSupabase();
   const { user, profile, refreshProfile } = useAuth();
-  const today = dateInTimezone(profile?.timezone || 'America/Santiago');
-  const [selectedDate, setSelectedDate] = useState(today);
+  const { selectedDate, today, isToday, setSelectedDate, resetToToday } = useSelectedDate();
   const [log, setLog] = useState<DailyLog | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedState, setSavedState] = useState<'none' | 'synced' | 'offline'>('none');
   const [error, setError] = useState('');
   const dateInputRef = useRef<HTMLInputElement>(null);
-  const isToday = selectedDate === today;
-
-  useEffect(() => {
-    if (selectedDate > today) setSelectedDate(today);
-  }, [selectedDate, today]);
 
   useEffect(() => {
     if (!user) return;
@@ -156,8 +151,8 @@ export function TodayPage() {
             max={today}
             onChange={(event) => event.target.value && setSelectedDate(event.target.value)}
           />
-          <p className="muted">{isToday ? 'Toca la fecha para revisar o editar días anteriores.' : 'Estás editando un día anterior.'}</p>
-          {!isToday && <button type="button" className="link-button history-today-button" onClick={() => setSelectedDate(today)}>Volver a hoy</button>}
+          <p className="muted">{isToday ? 'Toca la fecha para revisar o editar días anteriores.' : 'Esta fecha seguirá activa también en Entreno hasta que vuelvas a hoy.'}</p>
+          {!isToday && <button type="button" className="link-button history-today-button" onClick={resetToToday}>Volver a hoy</button>}
         </div>
         <ScoreRing value={score} />
       </section>
