@@ -1,0 +1,10 @@
+MODO BRÍGIDO V2 — PASO ÚNICO DE SUPABASE
+
+1. Abre Supabase.
+2. Entra a SQL Editor > New query.
+3. Abre el archivo migrations/20260804_body_composition.sql.
+4. Copia TODO su contenido, pégalo y presiona Run.
+5. Debe aparecer: Success. No rows returned.
+
+Este cambio agrega sexo, fecha de nacimiento, altura, cuello y cadera.
+No elimina ni modifica tus pesos, entrenamientos o registros existentes.
