@@ -1,8 +1,14 @@
 let audioContext: AudioContext | null = null;
 let fallbackNotification: Notification | null = null;
 let lifecycleStarted = false;
+let alarmInterval: number | null = null;
+let alarmRoutineName = '';
+let alarmPulseCount = 0;
 
 const TIMER_NOTIFICATION_TAG = 'modo-brigido-rest-timer';
+const TIMER_ALARM_ACTIVE_KEY = 'modo-brigido-timer-alarm-active';
+const TIMER_ALARM_ROUTINE_KEY = 'modo-brigido-timer-alarm-routine';
+const ALARM_REPEAT_MS = 3200;
 
 export type TimerNotificationPermission = NotificationPermission | 'unsupported';
 
@@ -55,7 +61,6 @@ function scheduleBellNote(context: AudioContext, startAt: number, frequency: num
   fundamental.start(startAt);
   fundamental.stop(startAt + duration);
 
-  // Armónico suave para que suene más a campana y menos a tono electrónico.
   const overtone = context.createOscillator();
   overtone.type = 'sine';
   overtone.frequency.setValueAtTime(frequency * 2.01, startAt);
@@ -81,11 +86,11 @@ async function playTimerChime(): Promise<void> {
 
   const now = context.currentTime + 0.03;
   const notes = [
-    { offset: 0.00, frequency: 1046.5, duration: 0.34, volume: 0.30 },
-    { offset: 0.34, frequency: 659.25, duration: 0.38, volume: 0.27 },
-    { offset: 0.76, frequency: 1046.5, duration: 0.34, volume: 0.30 },
-    { offset: 1.10, frequency: 659.25, duration: 0.38, volume: 0.27 },
-    { offset: 1.52, frequency: 1174.66, duration: 0.58, volume: 0.34 }
+    { offset: 0.00, frequency: 1046.5, duration: 0.34, volume: 0.34 },
+    { offset: 0.34, frequency: 659.25, duration: 0.38, volume: 0.31 },
+    { offset: 0.76, frequency: 1046.5, duration: 0.34, volume: 0.34 },
+    { offset: 1.10, frequency: 659.25, duration: 0.38, volume: 0.31 },
+    { offset: 1.52, frequency: 1174.66, duration: 0.58, volume: 0.38 }
   ];
 
   for (const note of notes) {
@@ -107,26 +112,15 @@ export async function clearTimerNotifications(): Promise<void> {
   }
 }
 
-export function startTimerNotificationLifecycle(): void {
-  if (lifecycleStarted || typeof window === 'undefined') return;
-  lifecycleStarted = true;
-
-  const clearWhenAppIsVisible = () => {
-    if (document.visibilityState === 'visible') void clearTimerNotifications();
-  };
-
-  document.addEventListener('visibilitychange', clearWhenAppIsVisible);
-  window.addEventListener('focus', clearWhenAppIsVisible);
-  clearWhenAppIsVisible();
-}
-
-async function showBackgroundNotification(routineName?: string): Promise<void> {
+async function showBackgroundNotification(routineName?: string, pulse = 1): Promise<void> {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   if (document.visibilityState === 'visible') return;
 
-  const title = '¡Descanso terminado!';
+  const title = '⏱️ ¡Descanso terminado!';
   const options: NotificationOptions = {
-    body: routineName ? `${routineName}: vuelve para hacer la siguiente serie.` : 'Vuelve para hacer la siguiente serie.',
+    body: routineName
+      ? `${routineName}: vuelve para hacer la siguiente serie. Alarma ${pulse}.`
+      : `Vuelve para hacer la siguiente serie. Alarma ${pulse}.`,
     icon: `${import.meta.env.BASE_URL}icon-192.png`,
     badge: `${import.meta.env.BASE_URL}icon-192.png`,
     tag: TIMER_NOTIFICATION_TAG,
@@ -134,6 +128,8 @@ async function showBackgroundNotification(routineName?: string): Promise<void> {
     requireInteraction: true,
     silent: false,
     vibrate: [180, 90, 180, 220, 180, 90, 180, 220, 260],
+    timestamp: Date.now(),
+    actions: [{ action: 'open-timer', title: 'Abrir timer' }],
     data: { url: window.location.href }
   };
 
@@ -143,14 +139,73 @@ async function showBackgroundNotification(routineName?: string): Promise<void> {
       await registration.showNotification(title, options);
       return;
     }
+    fallbackNotification?.close();
     fallbackNotification = new Notification(title, options);
   } catch (error) {
     console.warn('No se pudo mostrar la notificación del timer.', error);
   }
 }
 
-export async function triggerTimerFinishedAlert(routineName?: string): Promise<void> {
+async function runAlarmPulse(): Promise<void> {
+  if (document.visibilityState === 'visible') {
+    stopPersistentTimerAlarm();
+    return;
+  }
+
+  alarmPulseCount += 1;
   await playTimerChime();
   if ('vibrate' in navigator) navigator.vibrate([180, 90, 180, 220, 180, 90, 180, 220, 260]);
-  await showBackgroundNotification(routineName);
+  await showBackgroundNotification(alarmRoutineName, alarmPulseCount);
+}
+
+function startPersistentTimerAlarm(routineName?: string): void {
+  alarmRoutineName = routineName ?? '';
+  alarmPulseCount = 0;
+  localStorage.setItem(TIMER_ALARM_ACTIVE_KEY, '1');
+  localStorage.setItem(TIMER_ALARM_ROUTINE_KEY, alarmRoutineName);
+
+  if (alarmInterval !== null) window.clearInterval(alarmInterval);
+  void runAlarmPulse();
+  alarmInterval = window.setInterval(() => { void runAlarmPulse(); }, ALARM_REPEAT_MS);
+}
+
+export function stopPersistentTimerAlarm(): void {
+  if (alarmInterval !== null) {
+    window.clearInterval(alarmInterval);
+    alarmInterval = null;
+  }
+  alarmPulseCount = 0;
+  alarmRoutineName = '';
+  localStorage.removeItem(TIMER_ALARM_ACTIVE_KEY);
+  localStorage.removeItem(TIMER_ALARM_ROUTINE_KEY);
+  if ('vibrate' in navigator) navigator.vibrate(0);
+  void clearTimerNotifications();
+}
+
+export function startTimerNotificationLifecycle(): void {
+  if (lifecycleStarted || typeof window === 'undefined') return;
+  lifecycleStarted = true;
+
+  const stopWhenAppIsVisible = () => {
+    if (document.visibilityState === 'visible') stopPersistentTimerAlarm();
+  };
+
+  document.addEventListener('visibilitychange', stopWhenAppIsVisible);
+  window.addEventListener('focus', stopWhenAppIsVisible);
+
+  if (document.visibilityState === 'visible') {
+    stopPersistentTimerAlarm();
+  } else if (localStorage.getItem(TIMER_ALARM_ACTIVE_KEY) === '1') {
+    startPersistentTimerAlarm(localStorage.getItem(TIMER_ALARM_ROUTINE_KEY) ?? undefined);
+  }
+}
+
+export async function triggerTimerFinishedAlert(routineName?: string): Promise<void> {
+  if (document.visibilityState === 'visible') {
+    await playTimerChime();
+    if ('vibrate' in navigator) navigator.vibrate([180, 90, 180, 220, 260]);
+    return;
+  }
+
+  startPersistentTimerAlarm(routineName);
 }
