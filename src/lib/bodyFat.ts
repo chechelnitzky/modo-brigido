@@ -9,6 +9,7 @@ export type BodyCompositionEstimate = {
   leanMassKg: number;
   idealBodyFatPercentage: number | null;
   estimatedTargetWeightKg: number | null;
+  estimatedTargetWaistCm: number | null;
   estimatedWeightToLoseKg: number | null;
 };
 
@@ -23,7 +24,10 @@ const JACKSON_POLLOCK_REFERENCE: Record<Sex, Array<[number, number]>> = {
   ]
 };
 
-export function ageFromBirthDate(birthDate: string | null | undefined, at = new Date()): number | null {
+export function ageFromBirthDate(
+  birthDate: string | null | undefined,
+  at = new Date()
+): number | null {
   if (!birthDate) return null;
   const date = new Date(`${birthDate}T12:00:00`);
   if (Number.isNaN(date.getTime())) return null;
@@ -64,9 +68,38 @@ export function bodyFatCategory(sex: Sex, percentage: number): string {
   return 'Obesidad';
 }
 
+function targetWaistForBodyFat(input: {
+  sex: Sex;
+  targetBodyFatPercentage: number;
+  heightCm: number;
+  neckCm: number;
+  hipCm?: number | null;
+}): number | null {
+  const { sex, targetBodyFatPercentage, heightCm, neckCm, hipCm } = input;
+  const targetDenominator = 495 / (targetBodyFatPercentage + 450);
+  let targetWaist: number;
+
+  if (sex === 'male') {
+    const logCircumference = (
+      1.0324 + 0.15456 * Math.log10(heightCm) - targetDenominator
+    ) / 0.19077;
+    targetWaist = neckCm + 10 ** logCircumference;
+  } else {
+    if (!hipCm || hipCm <= 0) return null;
+    const logCircumference = (
+      1.29579 + 0.221 * Math.log10(heightCm) - targetDenominator
+    ) / 0.35004;
+    targetWaist = 10 ** logCircumference - hipCm + neckCm;
+  }
+
+  if (!Number.isFinite(targetWaist) || targetWaist < 30 || targetWaist > 250) return null;
+  return Math.round(targetWaist * 10) / 10;
+}
+
 export function estimateBodyComposition(input: {
   sex: Sex | null | undefined;
   birthDate?: string | null;
+  atDate?: string | null;
   heightCm: number | null | undefined;
   weightKg: number | null | undefined;
   neckCm: number | null | undefined;
@@ -95,11 +128,21 @@ export function estimateBodyComposition(input: {
   const bodyFatPercentage = Math.round(rawPercentage * 10) / 10;
   const fatMassKg = weightKg * bodyFatPercentage / 100;
   const leanMassKg = weightKg - fatMassKg;
-  const age = ageFromBirthDate(input.birthDate);
+  const atDate = input.atDate ? new Date(`${input.atDate}T12:00:00`) : new Date();
+  const age = ageFromBirthDate(input.birthDate, atDate);
   const idealBodyFatPercentage = idealBodyFatForAge(sex, age);
   const estimatedTargetWeightKg = idealBodyFatPercentage === null
     ? null
     : leanMassKg / (1 - idealBodyFatPercentage / 100);
+  const estimatedTargetWaistCm = idealBodyFatPercentage === null
+    ? null
+    : targetWaistForBodyFat({
+        sex,
+        targetBodyFatPercentage: idealBodyFatPercentage,
+        heightCm,
+        neckCm,
+        hipCm
+      });
   const estimatedWeightToLoseKg = estimatedTargetWeightKg === null
     ? null
     : Math.max(0, weightKg - estimatedTargetWeightKg);
@@ -113,6 +156,7 @@ export function estimateBodyComposition(input: {
     leanMassKg: Math.round(leanMassKg * 10) / 10,
     idealBodyFatPercentage: idealBodyFatPercentage === null ? null : Math.round(idealBodyFatPercentage * 10) / 10,
     estimatedTargetWeightKg: estimatedTargetWeightKg === null ? null : Math.round(estimatedTargetWeightKg * 10) / 10,
+    estimatedTargetWaistCm,
     estimatedWeightToLoseKg: estimatedWeightToLoseKg === null ? null : Math.round(estimatedWeightToLoseKg * 10) / 10
   };
 }
@@ -121,6 +165,7 @@ export function estimateBodyCompositionForLog(profile: Profile, log: DailyLog): 
   return estimateBodyComposition({
     sex: profile.sex,
     birthDate: profile.birth_date,
+    atDate: log.log_date,
     heightCm: profile.height_cm,
     weightKg: log.weight_kg,
     waistCm: log.waist_cm,
@@ -133,8 +178,8 @@ export function missingBodyFatFields(profile: Profile, log?: DailyLog | null): s
   const missing: string[] = [];
   if (!profile.sex) missing.push('sexo para la fórmula');
   if (!profile.height_cm) missing.push('altura');
-  if (!(log?.weight_kg)) missing.push('peso');
-  if (!(log?.waist_cm)) missing.push('cintura');
+  if (!log?.weight_kg) missing.push('peso');
+  if (!log?.waist_cm) missing.push('cintura');
   if (!(log?.neck_cm ?? profile.neck_cm)) missing.push('cuello');
   if (profile.sex === 'female' && !(log?.hip_cm ?? profile.hip_cm)) missing.push('cadera');
   return missing;
