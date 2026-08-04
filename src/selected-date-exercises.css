@@ -1,3 +1,20 @@
+.global-date-chip {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: min(48vw, 340px);
+  padding: 8px 11px;
+  border: 1px solid rgba(255, 173, 66, .34);
+  border-radius: 999px;
+  color: #ffe2bd;
+  background: rgba(255, 173, 66, .08);
+  font: inherit;
+  font-size: 11px;
+}
+.global-date-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.global-date-chip svg { flex: 0 0 auto; }
+
 .selected-date-banner {
   display: flex;
   align-items: center;
@@ -50,6 +67,8 @@
 }
 
 @media (max-width: 650px) {
+  .topbar { flex-wrap: wrap; }
+  .global-date-chip { order: 3; width: 100%; max-width: none; justify-content: center; margin-left: 0; }
   .custom-exercise-grid { grid-template-columns: 1fr; }
   .custom-exercise-grid label:last-child { grid-column: auto; }
 }
