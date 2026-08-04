@@ -1,7 +1,9 @@
-import { Activity, BarChart3, CloudOff, CloudUpload, Dumbbell, Home, LogOut, MoreHorizontal, Salad } from 'lucide-react';
+import { Activity, BarChart3, CalendarDays, CloudOff, CloudUpload, Dumbbell, Home, LogOut, MoreHorizontal, Salad, X } from 'lucide-react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useSelectedDate } from '../context/SelectedDateContext';
 import { useOfflineStatus } from '../hooks/useOfflineStatus';
+import { prettyDate } from '../lib/date';
 
 const links = [
   { to: '/', label: 'Hoy', icon: Home },
@@ -13,6 +15,7 @@ const links = [
 
 export function Layout() {
   const { profile, signOut } = useAuth();
+  const { selectedDate, isToday, resetToToday } = useSelectedDate();
   const sync = useOfflineStatus();
   const SyncIcon = !sync.online ? CloudOff : sync.syncing || sync.pending > 0 ? CloudUpload : Activity;
   const syncText = !sync.online
@@ -30,6 +33,7 @@ export function Layout() {
           <div className="brand-mark">MB</div>
           <div><strong>Modo Brígido</strong><span>{profile?.display_name || 'Tu plan diario'}</span></div>
         </div>
+        {!isToday && <button type="button" className="global-date-chip" onClick={resetToToday} title="Volver a hoy"><CalendarDays size={15} /><span>{prettyDate(selectedDate)}</span><X size={14} /></button>}
         <button className="icon-button desktop-signout" onClick={signOut} title="Cerrar sesión"><LogOut size={20} /></button>
       </header>
 
