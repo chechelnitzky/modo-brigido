@@ -19,6 +19,22 @@
 .timer-bell { color: var(--orange); animation: timer-ring .7s ease-in-out infinite alternate; }
 @keyframes timer-ring { from { transform: rotate(-10deg); } to { transform: rotate(10deg); } }
 
+/* Selector de fecha */
+.date-heading-wrap { position: relative; min-width: 0; }
+.date-heading-button { display: inline-flex; align-items: center; gap: 10px; border: 0; padding: 0; color: inherit; background: transparent; text-align: left; }
+.date-heading-button h1 { margin: 3px 0 6px; }
+.date-heading-button svg { color: var(--green); flex: 0 0 auto; }
+.date-heading-button:hover h1 { color: #fff; }
+.native-date-picker { position: absolute; left: 0; top: 32px; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.history-today-button { padding-top: 5px; }
+
+/* Acciones reversibles de entrenamiento */
+.routine-action-row { display: grid; gap: 9px; }
+.routine-action-row .primary-button, .routine-action-row .routine-unmark { width: 100%; }
+.exercise-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.exercise-toggle.active { color: var(--orange); border-color: rgba(255,173,66,.38); }
+.exercise-panel.exercise-completed { border-color: rgba(112,228,72,.42); }
+
 @media (max-width: 760px) {
   .rest-timer { grid-template-columns: 1fr auto; top: 70px; gap: 12px; }
   .rest-timer-copy { grid-column: 1 / -1; }
@@ -26,4 +42,7 @@
   .rest-timer-clock { min-width: 105px; }
   .rest-timer-actions { justify-content: stretch; }
   .rest-timer-actions button { flex: 1; }
+  .exercise-actions { width: 100%; justify-content: stretch; margin-left: 51px; }
+  .exercise-actions button { flex: 1; }
+  .exercise-title .exercise-actions .secondary-button { margin-left: 0; }
 }
