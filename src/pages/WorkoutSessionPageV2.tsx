@@ -1,43 +1,427 @@
 import { ArrowLeft, BellRing, Check, CheckCircle2, CloudOff, Dumbbell, Pause, Play, RefreshCw, RotateCcw, Save, Search, TimerReset } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Modal } from '../components/Modal';
 import { useAuth } from '../context/AuthContext';
 import { useOfflineStatus } from '../hooks/useOfflineStatus';
 import { cacheKeys, cacheSessionSummary, getCached, queueMutation, saveMutation, setCached, syncPendingMutations, updateCachedRoutineExercise } from '../lib/offline';
 import { getSupabase } from '../lib/supabase';
+import {
+  getTimerNotificationPermission,
+  prepareTimerAlerts,
+  requestTimerNotificationPermission,
+  triggerTimerFinishedAlert,
+  type TimerNotificationPermission
+} from '../lib/timerAlerts';
 import type { Exercise } from '../types';
 
-const REST_SECONDS=120;
-type TimerState={remaining:number;endAt:number|null;running:boolean;finished:boolean};
-function formatTimer(seconds:number){const safe=Math.max(0,seconds);return`${Math.floor(safe/60).toString().padStart(2,'0')}:${(safe%60).toString().padStart(2,'0')}`;}
-function singleRelation<T>(value:T|T[]|null|undefined):T|null{if(Array.isArray(value))return value[0]??null;return value??null;}
-function normalizeSessionData(data:any){return{...data,routine:singleRelation(data?.routine),workout_exercises:[...(data?.workout_exercises??[])].sort((a:any,b:any)=>a.position-b.position).map((item:any)=>({...item,exercise:singleRelation(item.exercise),planned:singleRelation(item.planned),workout_sets:[...(item.workout_sets??[])].sort((a:any,b:any)=>a.set_number-b.set_number)}))};}
-function mergeSessionData(remote:any,cached:any){const r=normalizeSessionData(remote),c=cached?normalizeSessionData(cached):null;if(!c)return r;if(!r.workout_exercises.length&&c.workout_exercises.length)return c;const cachedById=new Map(c.workout_exercises.map((item:any)=>[item.id,item]));const merged=r.workout_exercises.map((remoteExercise:any)=>{const cachedExercise:any=cachedById.get(remoteExercise.id);if(!cachedExercise)return remoteExercise;const remoteSets=remoteExercise.workout_sets??[],cachedSets=cachedExercise.workout_sets??[];if(!remoteSets.length&&cachedSets.length)return{...remoteExercise,...cachedExercise,workout_sets:cachedSets};const cachedSetsById=new Map(cachedSets.map((set:any)=>[set.id,set]));return{...cachedExercise,...remoteExercise,exercise:remoteExercise.exercise??cachedExercise.exercise,planned:remoteExercise.planned??cachedExercise.planned,workout_sets:remoteSets.map((set:any)=>({...((cachedSetsById.get(set.id)as any)??{}),...set}))};});for(const cachedExercise of c.workout_exercises)if(!merged.some((item:any)=>item.id===cachedExercise.id))merged.push(cachedExercise);return normalizeSessionData({...c,...r,workout_exercises:merged});}
+const REST_SECONDS = 120;
+type TimerState = { remaining: number; endAt: number | null; running: boolean; finished: boolean };
 
-export function WorkoutSessionPageV2(){
- const{id}=useParams(),navigate=useNavigate(),supabase=getSupabase(),{user}=useAuth(),sync=useOfflineStatus();
- const[session,setSession]=useState<any>(null),[library,setLibrary]=useState<Exercise[]>([]),[replaceTarget,setReplaceTarget]=useState<any>(null),[search,setSearch]=useState(''),[saving,setSaving]=useState(false),[error,setError]=useState('');
- const[timer,setTimer]=useState<TimerState>({remaining:REST_SECONDS,endAt:null,running:false,finished:false}),timerStorageKey=`modo-brigido-rest-timer:${id??'unknown'}`;
- const cacheCurrentSession=async(next:any)=>{if(id)await setCached(cacheKeys.workoutSession(id),next);};
- const repairMissingSets=async(nextSession:any)=>{const inserts:any[]=[];const repaired={...nextSession,workout_exercises:nextSession.workout_exercises.map((exercise:any)=>{if(exercise.workout_sets?.length)return exercise;const targetSets=Number(exercise.planned?.target_sets??2),workoutSets=Array.from({length:Math.max(1,targetSets)},(_,index)=>({id:crypto.randomUUID(),set_number:index+1,weight_kg:null,reps:null,rir:null,completed:false}));inserts.push(...workoutSets.map(set=>({...set,workout_exercise_id:exercise.id})));return{...exercise,workout_sets:workoutSets};})};if(inserts.length){await queueMutation({operation:'upsert',table:'workout_sets',payload:inserts,dedupeKey:`repair-session-sets:${id}`});if(navigator.onLine)void syncPendingMutations();}return repaired;};
- const load=async()=>{if(!id)return;setError('');const cached=await getCached<any>(cacheKeys.workoutSession(id));if(cached)setSession(normalizeSessionData(cached));if(!navigator.onLine){if(!cached)setError('Esta sesión no está guardada en este dispositivo.');return;}await syncPendingMutations();const{data,error:loadError}=await supabase.from('workout_sessions').select(`id,user_id,routine_id,session_date,started_at,finished_at,notes,routine:routine_templates(name),workout_exercises(id,position,exercise_id,planned_routine_exercise_id,exercise:exercise_library(id,slug,name,category,primary_muscle,pattern,equipment),planned:routine_exercises(target_sets,rep_min,rep_max,rir_target),workout_sets(id,set_number,weight_kg,reps,rir,completed))`).eq('id',id).single();if(loadError){if(!cached)setError(loadError.message);return;}if(data){const next=await repairMissingSets(mergeSessionData(data,cached));setSession(next);await cacheCurrentSession(next);}};
- useEffect(()=>{void load();},[id]);
- useEffect(()=>{const saved=localStorage.getItem(timerStorageKey);if(!saved)return;try{const parsed=JSON.parse(saved)as TimerState;if(parsed.running&&parsed.endAt){const remaining=Math.max(0,Math.ceil((parsed.endAt-Date.now())/1000));setTimer({...parsed,remaining,running:remaining>0,finished:remaining===0});}else setTimer(parsed);}catch{localStorage.removeItem(timerStorageKey);}},[timerStorageKey]);
- useEffect(()=>{localStorage.setItem(timerStorageKey,JSON.stringify(timer));},[timer,timerStorageKey]);
- useEffect(()=>{if(!timer.running||!timer.endAt)return;const interval=window.setInterval(()=>{const remaining=Math.max(0,Math.ceil((timer.endAt!-Date.now())/1000));setTimer(current=>{if(remaining>0)return{...current,remaining};if(current.running&&navigator.vibrate)navigator.vibrate([250,120,250]);return{remaining:0,endAt:null,running:false,finished:true};});},250);return()=>window.clearInterval(interval);},[timer.running,timer.endAt]);
- const startTimer=(seconds=REST_SECONDS)=>setTimer({remaining:seconds,endAt:Date.now()+seconds*1000,running:true,finished:false});
- const toggleTimer=()=>{if(timer.running){const remaining=timer.endAt?Math.max(0,Math.ceil((timer.endAt-Date.now())/1000)):timer.remaining;setTimer({remaining,endAt:null,running:false,finished:false});}else startTimer(timer.remaining>0?timer.remaining:REST_SECONDS);};
- const resetTimer=()=>setTimer({remaining:REST_SECONDS,endAt:null,running:false,finished:false});
- const loadLibrary=async(target:any)=>{setReplaceTarget(target);if(library.length)return;const cached=await getCached<Exercise[]>(cacheKeys.exerciseLibrary);if(cached)setLibrary(cached);if(!navigator.onLine)return;const{data}=await supabase.from('exercise_library').select('*').order('name'),next=(data??[])as Exercise[];setLibrary(next);await setCached(cacheKeys.exerciseLibrary,next);};
- const filteredLibrary=useMemo(()=>{const query=search.toLowerCase();return library.filter(exercise=>!query||`${exercise.name} ${exercise.primary_muscle} ${exercise.equipment}`.toLowerCase().includes(query));},[library,search]);
- const editSetLocal=(exerciseId:string,setId:string,field:string,value:string|boolean)=>setSession((current:any)=>{const next={...current,workout_exercises:current.workout_exercises.map((exercise:any)=>exercise.id===exerciseId?{...exercise,workout_sets:exercise.workout_sets.map((set:any)=>set.id===setId?{...set,[field]:value===''?null:value}:set)}:exercise)};void cacheCurrentSession(next);return next;});
- const saveSet=async(set:any)=>{setSaving(true);await saveMutation({operation:'update',table:'workout_sets',payload:{weight_kg:set.weight_kg===null||set.weight_kg===''?null:Number(set.weight_kg),reps:set.reps===null||set.reps===''?null:Number(set.reps),rir:set.rir===null||set.rir===''?null:Number(set.rir),completed:Boolean(set.completed),updated_at:new Date().toISOString()},match:{id:set.id},dedupeKey:`set:${set.id}`});setSaving(false);};
- const toggleComplete=async(exerciseId:string,set:any)=>{const completed=!set.completed;editSetLocal(exerciseId,set.id,'completed',completed);await saveMutation({operation:'update',table:'workout_sets',payload:{completed,updated_at:new Date().toISOString()},match:{id:set.id},dedupeKey:`set-complete:${set.id}`});if(completed)startTimer();};
- const toggleExerciseComplete=async(exercise:any)=>{const markCompleted=!(exercise.workout_sets.length>0&&exercise.workout_sets.every((set:any)=>set.completed)),updatedAt=new Date().toISOString();setSession((current:any)=>{const next={...current,workout_exercises:current.workout_exercises.map((item:any)=>item.id===exercise.id?{...item,workout_sets:item.workout_sets.map((set:any)=>({...set,completed:markCompleted}))}:item)};void cacheCurrentSession(next);return next;});for(const set of exercise.workout_sets)await queueMutation({operation:'update',table:'workout_sets',payload:{completed:markCompleted,updated_at:updatedAt},match:{id:set.id},dedupeKey:`set-complete:${set.id}`});if(navigator.onLine)await syncPendingMutations();if(markCompleted)startTimer();};
- const addSet=async(exercise:any)=>{const nextNumber=(exercise.workout_sets.at(-1)?.set_number??0)+1,nextSet={id:crypto.randomUUID(),set_number:nextNumber,weight_kg:null,reps:null,rir:null,completed:false};setSession((current:any)=>{const next={...current,workout_exercises:current.workout_exercises.map((item:any)=>item.id===exercise.id?{...item,workout_sets:[...item.workout_sets,nextSet]}:item)};void cacheCurrentSession(next);return next;});await saveMutation({operation:'upsert',table:'workout_sets',payload:{...nextSet,workout_exercise_id:exercise.id},dedupeKey:`new-set:${nextSet.id}`});};
- const replaceExercise=async(exercise:Exercise,permanent:boolean)=>{if(!replaceTarget||!user)return;setSaving(true);const plannedId=replaceTarget.planned_routine_exercise_id;setSession((current:any)=>{const next={...current,workout_exercises:current.workout_exercises.map((item:any)=>item.id===replaceTarget.id?{...item,exercise_id:exercise.id,exercise}:item)};void cacheCurrentSession(next);return next;});await saveMutation({operation:'update',table:'workout_exercises',payload:{exercise_id:exercise.id},match:{id:replaceTarget.id},dedupeKey:`replace-session:${replaceTarget.id}`});if(permanent&&plannedId){await updateCachedRoutineExercise(user.id,plannedId,exercise);await saveMutation({operation:'update',table:'routine_exercises',payload:{exercise_id:exercise.id,updated_at:new Date().toISOString()},match:{id:plannedId},dedupeKey:`replace-routine:${plannedId}`});}setReplaceTarget(null);setSearch('');setSaving(false);};
- const finish=async()=>{if(!id||!user||!session)return;const finishedAt=new Date().toISOString(),next={...session,finished_at:finishedAt};setSession(next);await Promise.all([cacheCurrentSession(next),cacheSessionSummary(user.id,{id,routine_id:session.routine_id,session_date:session.session_date,started_at:session.started_at,finished_at:finishedAt})]);await saveMutation({operation:'update',table:'workout_sessions',payload:{finished_at:finishedAt,updated_at:finishedAt},match:{id},dedupeKey:`finish-session:${id}`});localStorage.removeItem(timerStorageKey);navigate('/entreno');};
- if(!session)return <div className="page-loading">Preparando entrenamiento…</div>;
- return <div className="page-grid workout-session-page"><section className="session-header"><button className="icon-button" onClick={()=>navigate('/entreno')}><ArrowLeft/></button><div><p className="eyebrow">SESIÓN ACTIVA</p><h1>{session.routine?.name||'Entrenamiento'}</h1><p className="muted">{session.session_date} · Los cambios pueden ser solo hoy o permanentes.</p></div><span className={!sync.online?'status-chip orange':'status-chip'}>{saving?'Guardando…':!sync.online?<><CloudOff size={14}/> Offline</>:sync.pending?`${sync.pending} pendiente${sync.pending===1?'':'s'}`:'En línea'}</span></section>{error&&<div className="alert error">{error}</div>}{!session.workout_exercises.length&&<div className="alert error">Esta sesión llegó sin ejercicios. Presiona recargar.<button className="secondary-button compact inline-reload" onClick={load}><RefreshCw size={15}/> Recargar</button></div>}<section className={timer.finished?'panel rest-timer finished':timer.running?'panel rest-timer running':'panel rest-timer'}><div className="rest-timer-copy"><div className="metric-icon"><TimerReset/></div><div><p className="eyebrow">DESCANSO ENTRE SERIES</p><h2>{timer.finished?'¡Listo, siguiente serie!':'Timer de 2 minutos'}</h2><p className="muted">Se inicia al marcar una serie como completada.</p></div></div><div className="rest-timer-clock"><strong>{formatTimer(timer.remaining)}</strong><span>{timer.running?'corriendo':timer.finished?'terminado':'preparado'}</span></div><div className="rest-timer-actions"><button className="primary-button compact" onClick={toggleTimer}>{timer.running?<Pause size={16}/>:<Play size={16}/>} {timer.running?'Pausar':timer.remaining<REST_SECONDS&&timer.remaining>0?'Continuar':'Iniciar'}</button><button className="secondary-button compact" onClick={resetTimer}><RotateCcw size={16}/> Reiniciar</button>{timer.finished&&<BellRing className="timer-bell"/>}</div></section><section className="exercise-stack">{session.workout_exercises.map((exercise:any)=>{const exerciseCompleted=exercise.workout_sets.length>0&&exercise.workout_sets.every((set:any)=>set.completed);return <article className={exerciseCompleted?'panel exercise-panel exercise-completed':'panel exercise-panel'} key={exercise.id}><div className="exercise-title"><div className="metric-icon"><Dumbbell/></div><div><span>{exercise.exercise?.primary_muscle} · {exercise.exercise?.equipment}</span><h2>{exercise.exercise?.name||'Ejercicio'}</h2><small>Objetivo: {exercise.planned?.target_sets??exercise.workout_sets.length} × {exercise.planned?.rep_min??8}–{exercise.planned?.rep_max??12} · RIR {exercise.planned?.rir_target??2}</small></div><div className="exercise-actions"><button className={exerciseCompleted?'secondary-button compact exercise-toggle active':'secondary-button compact exercise-toggle'} onClick={()=>toggleExerciseComplete(exercise)}>{exerciseCompleted?<RotateCcw size={15}/>:<CheckCircle2 size={15}/>} {exerciseCompleted?'Desmarcar ejercicio':'Marcar ejercicio hecho'}</button><button className="secondary-button compact" onClick={()=>loadLibrary(exercise)}><RefreshCw size={15}/> Cambiar</button></div></div><div className="sets-table"><div className="sets-head"><span>Serie</span><span>Kg</span><span>Reps</span><span>RIR</span><span>OK</span></div>{exercise.workout_sets.map((set:any)=><div className={set.completed?'set-row completed':'set-row'} key={set.id}><strong>{set.set_number}</strong><input inputMode="decimal" type="number" step="0.5" value={set.weight_kg??''} onChange={e=>editSetLocal(exercise.id,set.id,'weight_kg',e.target.value)} onBlur={()=>saveSet(exercise.workout_sets.find((item:any)=>item.id===set.id))}/><input inputMode="numeric" type="number" value={set.reps??''} onChange={e=>editSetLocal(exercise.id,set.id,'reps',e.target.value)} onBlur={()=>saveSet(exercise.workout_sets.find((item:any)=>item.id===set.id))}/><input inputMode="numeric" type="number" min="0" max="10" value={set.rir??''} onChange={e=>editSetLocal(exercise.id,set.id,'rir',e.target.value)} onBlur={()=>saveSet(exercise.workout_sets.find((item:any)=>item.id===set.id))}/><button className={set.completed?'set-check active':'set-check'} onClick={()=>toggleComplete(exercise.id,set)} aria-label={set.completed?'Desmarcar serie':'Marcar serie'}><Check size={17}/></button></div>)}</div><button className="link-button inline" onClick={()=>addSet(exercise)}>+ Agregar serie</button></article>;})}</section><div className="sticky-finish"><div><TimerReset/><span>Todo queda guardado localmente aunque pierdas internet.</span></div><button className="primary-button" onClick={finish}><CheckCircle2/> Finalizar entrenamiento</button></div>{replaceTarget&&<Modal title={`Cambiar ${replaceTarget.exercise?.name??'ejercicio'}`} onClose={()=>setReplaceTarget(null)}><div className="search-box"><Search size={17}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar ejercicio, músculo o máquina"/></div><p className="muted small">“Solo hoy” modifica esta sesión. “Permanente” cambia la rutina futura.</p>{!library.length&&!navigator.onLine&&<div className="alert error">La biblioteca todavía no está descargada. Ábrela una vez con internet.</div>}<div className="library-list">{filteredLibrary.map(exercise=><div className="library-item" key={exercise.id}><div><strong>{exercise.name}</strong><span>{exercise.primary_muscle} · {exercise.equipment}</span></div><div><button className="secondary-button compact" onClick={()=>replaceExercise(exercise,false)}>Solo hoy</button><button className="primary-button compact" onClick={()=>replaceExercise(exercise,true)}><Save size={14}/> Permanente</button></div></div>)}</div></Modal>}</div>;
+function formatTimer(seconds: number) {
+  const safe = Math.max(0, seconds);
+  return `${Math.floor(safe / 60).toString().padStart(2, '0')}:${(safe % 60).toString().padStart(2, '0')}`;
+}
+
+function singleRelation<T>(value: T | T[] | null | undefined): T | null {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+}
+
+function normalizeSessionData(data: any) {
+  return {
+    ...data,
+    routine: singleRelation(data?.routine),
+    workout_exercises: [...(data?.workout_exercises ?? [])]
+      .sort((a: any, b: any) => a.position - b.position)
+      .map((item: any) => ({
+        ...item,
+        exercise: singleRelation(item.exercise),
+        planned: singleRelation(item.planned),
+        workout_sets: [...(item.workout_sets ?? [])].sort((a: any, b: any) => a.set_number - b.set_number)
+      }))
+  };
+}
+
+function mergeSessionData(remote: any, cached: any) {
+  const r = normalizeSessionData(remote);
+  const c = cached ? normalizeSessionData(cached) : null;
+  if (!c) return r;
+  if (!r.workout_exercises.length && c.workout_exercises.length) return c;
+
+  const cachedById = new Map(c.workout_exercises.map((item: any) => [item.id, item]));
+  const merged = r.workout_exercises.map((remoteExercise: any) => {
+    const cachedExercise: any = cachedById.get(remoteExercise.id);
+    if (!cachedExercise) return remoteExercise;
+    const remoteSets = remoteExercise.workout_sets ?? [];
+    const cachedSets = cachedExercise.workout_sets ?? [];
+    if (!remoteSets.length && cachedSets.length) return { ...remoteExercise, ...cachedExercise, workout_sets: cachedSets };
+    const cachedSetsById = new Map(cachedSets.map((set: any) => [set.id, set]));
+    return {
+      ...cachedExercise,
+      ...remoteExercise,
+      exercise: remoteExercise.exercise ?? cachedExercise.exercise,
+      planned: remoteExercise.planned ?? cachedExercise.planned,
+      workout_sets: remoteSets.map((set: any) => ({ ...((cachedSetsById.get(set.id) as any) ?? {}), ...set }))
+    };
+  });
+  for (const cachedExercise of c.workout_exercises) {
+    if (!merged.some((item: any) => item.id === cachedExercise.id)) merged.push(cachedExercise);
+  }
+  return normalizeSessionData({ ...c, ...r, workout_exercises: merged });
+}
+
+export function WorkoutSessionPageV2() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const supabase = getSupabase();
+  const { user } = useAuth();
+  const sync = useOfflineStatus();
+  const [session, setSession] = useState<any>(null);
+  const [library, setLibrary] = useState<Exercise[]>([]);
+  const [replaceTarget, setReplaceTarget] = useState<any>(null);
+  const [search, setSearch] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [notificationPermission, setNotificationPermission] = useState<TimerNotificationPermission>(getTimerNotificationPermission());
+  const [timer, setTimer] = useState<TimerState>({ remaining: REST_SECONDS, endAt: null, running: false, finished: false });
+  const timerStorageKey = `modo-brigido-rest-timer:${id ?? 'unknown'}`;
+  const alertedEndAtRef = useRef<number | null>(null);
+
+  const cacheCurrentSession = async (next: any) => {
+    if (id) await setCached(cacheKeys.workoutSession(id), next);
+  };
+
+  const repairMissingSets = async (nextSession: any) => {
+    const inserts: any[] = [];
+    const repaired = {
+      ...nextSession,
+      workout_exercises: nextSession.workout_exercises.map((exercise: any) => {
+        if (exercise.workout_sets?.length) return exercise;
+        const targetSets = Number(exercise.planned?.target_sets ?? 2);
+        const workoutSets = Array.from({ length: Math.max(1, targetSets) }, (_, index) => ({
+          id: crypto.randomUUID(),
+          set_number: index + 1,
+          weight_kg: null,
+          reps: null,
+          rir: null,
+          completed: false
+        }));
+        inserts.push(...workoutSets.map((set) => ({ ...set, workout_exercise_id: exercise.id })));
+        return { ...exercise, workout_sets: workoutSets };
+      })
+    };
+    if (inserts.length) {
+      await queueMutation({ operation: 'upsert', table: 'workout_sets', payload: inserts, dedupeKey: `repair-session-sets:${id}` });
+      if (navigator.onLine) void syncPendingMutations();
+    }
+    return repaired;
+  };
+
+  const load = async () => {
+    if (!id) return;
+    setError('');
+    const cached = await getCached<any>(cacheKeys.workoutSession(id));
+    if (cached) setSession(normalizeSessionData(cached));
+    if (!navigator.onLine) {
+      if (!cached) setError('Esta sesión no está guardada en este dispositivo.');
+      return;
+    }
+    await syncPendingMutations();
+    const { data, error: loadError } = await supabase
+      .from('workout_sessions')
+      .select(`id,user_id,routine_id,session_date,started_at,finished_at,notes,routine:routine_templates(name),workout_exercises(id,position,exercise_id,planned_routine_exercise_id,exercise:exercise_library(id,slug,name,category,primary_muscle,pattern,equipment),planned:routine_exercises(target_sets,rep_min,rep_max,rir_target),workout_sets(id,set_number,weight_kg,reps,rir,completed))`)
+      .eq('id', id)
+      .single();
+    if (loadError) {
+      if (!cached) setError(loadError.message);
+      return;
+    }
+    if (data) {
+      const next = await repairMissingSets(mergeSessionData(data, cached));
+      setSession(next);
+      await cacheCurrentSession(next);
+    }
+  };
+
+  useEffect(() => { void load(); }, [id]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem(timerStorageKey);
+    if (!saved) return;
+    try {
+      const parsed = JSON.parse(saved) as TimerState;
+      if (parsed.running && parsed.endAt) {
+        const remaining = Math.max(0, Math.ceil((parsed.endAt - Date.now()) / 1000));
+        setTimer({ ...parsed, remaining, running: remaining > 0, finished: remaining === 0 });
+        if (remaining === 0 && alertedEndAtRef.current !== parsed.endAt) {
+          alertedEndAtRef.current = parsed.endAt;
+          void triggerTimerFinishedAlert(session?.routine?.name);
+        }
+      } else {
+        setTimer(parsed);
+      }
+    } catch {
+      localStorage.removeItem(timerStorageKey);
+    }
+  }, [timerStorageKey, session?.routine?.name]);
+
+  useEffect(() => {
+    localStorage.setItem(timerStorageKey, JSON.stringify(timer));
+  }, [timer, timerStorageKey]);
+
+  useEffect(() => {
+    if (!timer.running || !timer.endAt) return;
+    const endAt = timer.endAt;
+    const tick = () => {
+      const remaining = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
+      if (remaining > 0) {
+        setTimer((current) => ({ ...current, remaining }));
+        return;
+      }
+      setTimer({ remaining: 0, endAt: null, running: false, finished: true });
+      if (alertedEndAtRef.current !== endAt) {
+        alertedEndAtRef.current = endAt;
+        void triggerTimerFinishedAlert(session?.routine?.name);
+      }
+    };
+    tick();
+    const interval = window.setInterval(tick, 250);
+    return () => window.clearInterval(interval);
+  }, [timer.running, timer.endAt, session?.routine?.name]);
+
+  const startTimer = (seconds = REST_SECONDS) => {
+    void prepareTimerAlerts();
+    alertedEndAtRef.current = null;
+    setTimer({ remaining: seconds, endAt: Date.now() + seconds * 1000, running: true, finished: false });
+  };
+
+  const toggleTimer = () => {
+    if (timer.running) {
+      const remaining = timer.endAt ? Math.max(0, Math.ceil((timer.endAt - Date.now()) / 1000)) : timer.remaining;
+      setTimer({ remaining, endAt: null, running: false, finished: false });
+    } else {
+      startTimer(timer.remaining > 0 ? timer.remaining : REST_SECONDS);
+    }
+  };
+
+  const resetTimer = () => {
+    alertedEndAtRef.current = null;
+    setTimer({ remaining: REST_SECONDS, endAt: null, running: false, finished: false });
+  };
+
+  const enableNotifications = async () => {
+    const permission = await requestTimerNotificationPermission();
+    setNotificationPermission(permission);
+  };
+
+  const loadLibrary = async (target: any) => {
+    setReplaceTarget(target);
+    if (library.length) return;
+    const cached = await getCached<Exercise[]>(cacheKeys.exerciseLibrary);
+    if (cached) setLibrary(cached);
+    if (!navigator.onLine) return;
+    const { data } = await supabase.from('exercise_library').select('*').order('name');
+    const next = (data ?? []) as Exercise[];
+    setLibrary(next);
+    await setCached(cacheKeys.exerciseLibrary, next);
+  };
+
+  const filteredLibrary = useMemo(() => {
+    const query = search.toLowerCase();
+    return library.filter((exercise) => !query || `${exercise.name} ${exercise.primary_muscle} ${exercise.equipment}`.toLowerCase().includes(query));
+  }, [library, search]);
+
+  const editSetLocal = (exerciseId: string, setId: string, field: string, value: string | boolean) => {
+    setSession((current: any) => {
+      const next = {
+        ...current,
+        workout_exercises: current.workout_exercises.map((exercise: any) => exercise.id === exerciseId
+          ? { ...exercise, workout_sets: exercise.workout_sets.map((set: any) => set.id === setId ? { ...set, [field]: value === '' ? null : value } : set) }
+          : exercise)
+      };
+      void cacheCurrentSession(next);
+      return next;
+    });
+  };
+
+  const saveSet = async (set: any) => {
+    setSaving(true);
+    await saveMutation({
+      operation: 'update',
+      table: 'workout_sets',
+      payload: {
+        weight_kg: set.weight_kg === null || set.weight_kg === '' ? null : Number(set.weight_kg),
+        reps: set.reps === null || set.reps === '' ? null : Number(set.reps),
+        rir: set.rir === null || set.rir === '' ? null : Number(set.rir),
+        completed: Boolean(set.completed),
+        updated_at: new Date().toISOString()
+      },
+      match: { id: set.id },
+      dedupeKey: `set:${set.id}`
+    });
+    setSaving(false);
+  };
+
+  const toggleComplete = async (exerciseId: string, set: any) => {
+    const completed = !set.completed;
+    editSetLocal(exerciseId, set.id, 'completed', completed);
+    await saveMutation({
+      operation: 'update',
+      table: 'workout_sets',
+      payload: { completed, updated_at: new Date().toISOString() },
+      match: { id: set.id },
+      dedupeKey: `set-complete:${set.id}`
+    });
+    if (completed) startTimer();
+  };
+
+  const toggleExerciseComplete = async (exercise: any) => {
+    const markCompleted = !(exercise.workout_sets.length > 0 && exercise.workout_sets.every((set: any) => set.completed));
+    const updatedAt = new Date().toISOString();
+    setSession((current: any) => {
+      const next = {
+        ...current,
+        workout_exercises: current.workout_exercises.map((item: any) => item.id === exercise.id
+          ? { ...item, workout_sets: item.workout_sets.map((set: any) => ({ ...set, completed: markCompleted })) }
+          : item)
+      };
+      void cacheCurrentSession(next);
+      return next;
+    });
+    for (const set of exercise.workout_sets) {
+      await queueMutation({
+        operation: 'update',
+        table: 'workout_sets',
+        payload: { completed: markCompleted, updated_at: updatedAt },
+        match: { id: set.id },
+        dedupeKey: `set-complete:${set.id}`
+      });
+    }
+    if (navigator.onLine) await syncPendingMutations();
+    if (markCompleted) startTimer();
+  };
+
+  const addSet = async (exercise: any) => {
+    const nextNumber = (exercise.workout_sets.at(-1)?.set_number ?? 0) + 1;
+    const nextSet = { id: crypto.randomUUID(), set_number: nextNumber, weight_kg: null, reps: null, rir: null, completed: false };
+    setSession((current: any) => {
+      const next = {
+        ...current,
+        workout_exercises: current.workout_exercises.map((item: any) => item.id === exercise.id
+          ? { ...item, workout_sets: [...item.workout_sets, nextSet] }
+          : item)
+      };
+      void cacheCurrentSession(next);
+      return next;
+    });
+    await saveMutation({ operation: 'upsert', table: 'workout_sets', payload: { ...nextSet, workout_exercise_id: exercise.id }, dedupeKey: `new-set:${nextSet.id}` });
+  };
+
+  const replaceExercise = async (exercise: Exercise, permanent: boolean) => {
+    if (!replaceTarget || !user) return;
+    setSaving(true);
+    const plannedId = replaceTarget.planned_routine_exercise_id;
+    setSession((current: any) => {
+      const next = {
+        ...current,
+        workout_exercises: current.workout_exercises.map((item: any) => item.id === replaceTarget.id
+          ? { ...item, exercise_id: exercise.id, exercise }
+          : item)
+      };
+      void cacheCurrentSession(next);
+      return next;
+    });
+    await saveMutation({ operation: 'update', table: 'workout_exercises', payload: { exercise_id: exercise.id }, match: { id: replaceTarget.id }, dedupeKey: `replace-session:${replaceTarget.id}` });
+    if (permanent && plannedId) {
+      await updateCachedRoutineExercise(user.id, plannedId, exercise);
+      await saveMutation({ operation: 'update', table: 'routine_exercises', payload: { exercise_id: exercise.id, updated_at: new Date().toISOString() }, match: { id: plannedId }, dedupeKey: `replace-routine:${plannedId}` });
+    }
+    setReplaceTarget(null);
+    setSearch('');
+    setSaving(false);
+  };
+
+  const finish = async () => {
+    if (!id || !user || !session) return;
+    const finishedAt = new Date().toISOString();
+    const next = { ...session, finished_at: finishedAt };
+    setSession(next);
+    await Promise.all([
+      cacheCurrentSession(next),
+      cacheSessionSummary(user.id, { id, routine_id: session.routine_id, session_date: session.session_date, started_at: session.started_at, finished_at: finishedAt })
+    ]);
+    await saveMutation({ operation: 'update', table: 'workout_sessions', payload: { finished_at: finishedAt, updated_at: finishedAt }, match: { id }, dedupeKey: `finish-session:${id}` });
+    localStorage.removeItem(timerStorageKey);
+    navigate('/entreno');
+  };
+
+  if (!session) return <div className="page-loading">Preparando entrenamiento…</div>;
+
+  return (
+    <div className="page-grid workout-session-page">
+      <section className="session-header">
+        <button className="icon-button" onClick={() => navigate('/entreno')}><ArrowLeft /></button>
+        <div><p className="eyebrow">SESIÓN ACTIVA</p><h1>{session.routine?.name || 'Entrenamiento'}</h1><p className="muted">{session.session_date} · Los cambios pueden ser solo hoy o permanentes.</p></div>
+        <span className={!sync.online ? 'status-chip orange' : 'status-chip'}>{saving ? 'Guardando…' : !sync.online ? <><CloudOff size={14} /> Offline</> : sync.pending ? `${sync.pending} pendiente${sync.pending === 1 ? '' : 's'}` : 'En línea'}</span>
+      </section>
+
+      {error && <div className="alert error">{error}</div>}
+      {!session.workout_exercises.length && <div className="alert error">Esta sesión llegó sin ejercicios. Presiona recargar.<button className="secondary-button compact inline-reload" onClick={load}><RefreshCw size={15} /> Recargar</button></div>}
+
+      <section className={timer.finished ? 'panel rest-timer finished' : timer.running ? 'panel rest-timer running' : 'panel rest-timer'}>
+        <div className="rest-timer-copy">
+          <div className="metric-icon"><TimerReset /></div>
+          <div><p className="eyebrow">DESCANSO ENTRE SERIES</p><h2>{timer.finished ? '¡Listo, siguiente serie!' : 'Timer de 2 minutos'}</h2><p className="muted">Ding y vibración al terminar. Activa avisos para recibir una notificación en segundo plano.</p></div>
+        </div>
+        <div className="rest-timer-clock"><strong>{formatTimer(timer.remaining)}</strong><span>{timer.running ? 'corriendo' : timer.finished ? 'terminado' : 'preparado'}</span></div>
+        <div className="rest-timer-actions">
+          <button className="primary-button compact" onClick={toggleTimer}>{timer.running ? <Pause size={16} /> : <Play size={16} />} {timer.running ? 'Pausar' : timer.remaining < REST_SECONDS && timer.remaining > 0 ? 'Continuar' : 'Iniciar'}</button>
+          <button className="secondary-button compact" onClick={resetTimer}><RotateCcw size={16} /> Reiniciar</button>
+          {notificationPermission === 'default' && <button className="secondary-button compact notification-permission-button" onClick={enableNotifications}><BellRing size={16} /> Activar avisos</button>}
+          {notificationPermission === 'granted' && <span className="timer-notification-state enabled"><BellRing size={15} /> Avisos activos</span>}
+          {notificationPermission === 'denied' && <span className="timer-notification-state blocked">Avisos bloqueados</span>}
+          {timer.finished && <BellRing className="timer-bell" />}
+        </div>
+      </section>
+
+      <section className="exercise-stack">
+        {session.workout_exercises.map((exercise: any) => {
+          const exerciseCompleted = exercise.workout_sets.length > 0 && exercise.workout_sets.every((set: any) => set.completed);
+          return (
+            <article className={exerciseCompleted ? 'panel exercise-panel exercise-completed' : 'panel exercise-panel'} key={exercise.id}>
+              <div className="exercise-title">
+                <div className="metric-icon"><Dumbbell /></div>
+                <div><span>{exercise.exercise?.primary_muscle} · {exercise.exercise?.equipment}</span><h2>{exercise.exercise?.name || 'Ejercicio'}</h2><small>Objetivo: {exercise.planned?.target_sets ?? exercise.workout_sets.length} × {exercise.planned?.rep_min ?? 8}–{exercise.planned?.rep_max ?? 12} · RIR {exercise.planned?.rir_target ?? 2}</small></div>
+                <div className="exercise-actions">
+                  <button className={exerciseCompleted ? 'secondary-button compact exercise-toggle active' : 'secondary-button compact exercise-toggle'} onClick={() => toggleExerciseComplete(exercise)}>{exerciseCompleted ? <RotateCcw size={15} /> : <CheckCircle2 size={15} />} {exerciseCompleted ? 'Desmarcar ejercicio' : 'Marcar ejercicio hecho'}</button>
+                  <button className="secondary-button compact" onClick={() => loadLibrary(exercise)}><RefreshCw size={15} /> Cambiar</button>
+                </div>
+              </div>
+              <div className="sets-table">
+                <div className="sets-head"><span>Serie</span><span>Kg</span><span>Reps</span><span>RIR</span><span>OK</span></div>
+                {exercise.workout_sets.map((set: any) => <div className={set.completed ? 'set-row completed' : 'set-row'} key={set.id}>
+                  <strong>{set.set_number}</strong>
+                  <input inputMode="decimal" type="number" step="0.5" value={set.weight_kg ?? ''} onChange={(e) => editSetLocal(exercise.id, set.id, 'weight_kg', e.target.value)} onBlur={() => saveSet(exercise.workout_sets.find((item: any) => item.id === set.id))} />
+                  <input inputMode="numeric" type="number" value={set.reps ?? ''} onChange={(e) => editSetLocal(exercise.id, set.id, 'reps', e.target.value)} onBlur={() => saveSet(exercise.workout_sets.find((item: any) => item.id === set.id))} />
+                  <input inputMode="numeric" type="number" min="0" max="10" value={set.rir ?? ''} onChange={(e) => editSetLocal(exercise.id, set.id, 'rir', e.target.value)} onBlur={() => saveSet(exercise.workout_sets.find((item: any) => item.id === set.id))} />
+                  <button className={set.completed ? 'set-check active' : 'set-check'} onClick={() => toggleComplete(exercise.id, set)} aria-label={set.completed ? 'Desmarcar serie' : 'Marcar serie'}><Check size={17} /></button>
+                </div>)}
+              </div>
+              <button className="link-button inline" onClick={() => addSet(exercise)}>+ Agregar serie</button>
+            </article>
+          );
+        })}
+      </section>
+
+      <div className="sticky-finish"><div><TimerReset /><span>Todo queda guardado localmente aunque pierdas internet.</span></div><button className="primary-button" onClick={finish}><CheckCircle2 /> Finalizar entrenamiento</button></div>
+
+      {replaceTarget && <Modal title={`Cambiar ${replaceTarget.exercise?.name ?? 'ejercicio'}`} onClose={() => setReplaceTarget(null)}>
+        <div className="search-box"><Search size={17} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar ejercicio, músculo o máquina" /></div>
+        <p className="muted small">“Solo hoy” modifica esta sesión. “Permanente” cambia la rutina futura.</p>
+        {!library.length && !navigator.onLine && <div className="alert error">La biblioteca todavía no está descargada. Ábrela una vez con internet.</div>}
+        <div className="library-list">{filteredLibrary.map((exercise) => <div className="library-item" key={exercise.id}><div><strong>{exercise.name}</strong><span>{exercise.primary_muscle} · {exercise.equipment}</span></div><div><button className="secondary-button compact" onClick={() => replaceExercise(exercise, false)}>Solo hoy</button><button className="primary-button compact" onClick={() => replaceExercise(exercise, true)}><Save size={14} /> Permanente</button></div></div>)}</div>
+      </Modal>}
+    </div>
+  );
 }
