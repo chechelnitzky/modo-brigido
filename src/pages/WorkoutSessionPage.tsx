@@ -1,25 +1,66 @@
-import { ArrowLeft, Check, CheckCircle2, Dumbbell, RefreshCw, Save, Search, TimerReset } from 'lucide-react';
+import { ArrowLeft, BellRing, Check, CheckCircle2, CloudOff, Dumbbell, Pause, Play, RefreshCw, RotateCcw, Save, Search, TimerReset } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Modal } from '../components/Modal';
+import { useAuth } from '../context/AuthContext';
+import { useOfflineStatus } from '../hooks/useOfflineStatus';
+import { cacheKeys, cacheSessionSummary, getCached, saveMutation, setCached, updateCachedRoutineExercise } from '../lib/offline';
 import { getSupabase } from '../lib/supabase';
 import type { Exercise } from '../types';
+
+const REST_SECONDS = 120;
+
+type TimerState = {
+  remaining: number;
+  endAt: number | null;
+  running: boolean;
+  finished: boolean;
+};
+
+function formatTimer(seconds: number) {
+  const safe = Math.max(0, seconds);
+  return `${Math.floor(safe / 60).toString().padStart(2, '0')}:${(safe % 60).toString().padStart(2, '0')}`;
+}
 
 export function WorkoutSessionPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const supabase = getSupabase();
+  const { user } = useAuth();
+  const sync = useOfflineStatus();
   const [session, setSession] = useState<any>(null);
   const [library, setLibrary] = useState<Exercise[]>([]);
   const [replaceTarget, setReplaceTarget] = useState<any>(null);
   const [search, setSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [timer, setTimer] = useState<TimerState>({ remaining: REST_SECONDS, endAt: null, running: false, finished: false });
+
+  const timerStorageKey = `modo-brigido-rest-timer:${id ?? 'unknown'}`;
+
+  const normalizeSession = (data: any) => ({
+    ...data,
+    workout_exercises: [...(data.workout_exercises ?? [])].sort((a: any, b: any) => a.position - b.position).map((item: any) => ({
+      ...item,
+      workout_sets: [...(item.workout_sets ?? [])].sort((a: any, b: any) => a.set_number - b.set_number)
+    }))
+  });
+
+  const cacheCurrentSession = async (next: any) => {
+    if (!id) return;
+    await setCached(cacheKeys.workoutSession(id), next);
+  };
 
   const load = async () => {
     if (!id) return;
+    const cached = await getCached<any>(cacheKeys.workoutSession(id));
+    if (cached) setSession(normalizeSession(cached));
+    if (!navigator.onLine) {
+      if (!cached) setError('Esta sesión no está guardada en este dispositivo. Ábrela una vez con internet.');
+      return;
+    }
     const { data, error: loadError } = await supabase.from('workout_sessions').select(`
-      id,session_date,started_at,finished_at,notes,
+      id,user_id,routine_id,session_date,started_at,finished_at,notes,
       routine:routine_templates(name),
       workout_exercises(
         id,position,exercise_id,planned_routine_exercise_id,
@@ -28,25 +69,78 @@ export function WorkoutSessionPage() {
         workout_sets(id,set_number,weight_kg,reps,rir,completed)
       )
     `).eq('id', id).single();
-    if (loadError) setError(loadError.message);
+    if (loadError) {
+      if (!cached) setError(loadError.message);
+      return;
+    }
     if (data) {
-      const next: any = data;
-      next.workout_exercises = [...(next.workout_exercises ?? [])].sort((a: any, b: any) => a.position - b.position).map((item: any) => ({
-        ...item,
-        workout_sets: [...(item.workout_sets ?? [])].sort((a: any, b: any) => a.set_number - b.set_number)
-      }));
+      const next = normalizeSession(data);
       setSession(next);
+      await cacheCurrentSession(next);
     }
   };
 
-  useEffect(() => { load(); }, [id]);
+  useEffect(() => { void load(); }, [id]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem(timerStorageKey);
+    if (!saved) return;
+    try {
+      const parsed = JSON.parse(saved) as TimerState;
+      if (parsed.running && parsed.endAt) {
+        const remaining = Math.max(0, Math.ceil((parsed.endAt - Date.now()) / 1000));
+        setTimer({ ...parsed, remaining, running: remaining > 0, finished: remaining === 0 });
+      } else {
+        setTimer(parsed);
+      }
+    } catch {
+      localStorage.removeItem(timerStorageKey);
+    }
+  }, [timerStorageKey]);
+
+  useEffect(() => {
+    localStorage.setItem(timerStorageKey, JSON.stringify(timer));
+  }, [timer, timerStorageKey]);
+
+  useEffect(() => {
+    if (!timer.running || !timer.endAt) return;
+    const interval = window.setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((timer.endAt! - Date.now()) / 1000));
+      setTimer((current) => {
+        if (remaining > 0) return { ...current, remaining };
+        if (current.running && navigator.vibrate) navigator.vibrate([250, 120, 250]);
+        return { remaining: 0, endAt: null, running: false, finished: true };
+      });
+    }, 250);
+    return () => window.clearInterval(interval);
+  }, [timer.running, timer.endAt]);
+
+  const startTimer = (seconds = REST_SECONDS) => {
+    setTimer({ remaining: seconds, endAt: Date.now() + seconds * 1000, running: true, finished: false });
+  };
+
+  const toggleTimer = () => {
+    if (timer.running) {
+      const remaining = timer.endAt ? Math.max(0, Math.ceil((timer.endAt - Date.now()) / 1000)) : timer.remaining;
+      setTimer({ remaining, endAt: null, running: false, finished: false });
+    } else {
+      const seconds = timer.remaining > 0 ? timer.remaining : REST_SECONDS;
+      startTimer(seconds);
+    }
+  };
+
+  const resetTimer = () => setTimer({ remaining: REST_SECONDS, endAt: null, running: false, finished: false });
 
   const loadLibrary = async (target: any) => {
     setReplaceTarget(target);
-    if (!library.length) {
-      const { data } = await supabase.from('exercise_library').select('*').order('name');
-      setLibrary((data ?? []) as Exercise[]);
-    }
+    if (library.length) return;
+    const cached = await getCached<Exercise[]>(cacheKeys.exerciseLibrary);
+    if (cached) setLibrary(cached);
+    if (!navigator.onLine) return;
+    const { data } = await supabase.from('exercise_library').select('*').order('name');
+    const next = (data ?? []) as Exercise[];
+    setLibrary(next);
+    await setCached(cacheKeys.exerciseLibrary, next);
   };
 
   const filteredLibrary = useMemo(() => {
@@ -55,54 +149,104 @@ export function WorkoutSessionPage() {
   }, [library, search]);
 
   const editSetLocal = (exerciseId: string, setId: string, field: string, value: string | boolean) => {
-    setSession((current: any) => ({
-      ...current,
-      workout_exercises: current.workout_exercises.map((exercise: any) => exercise.id === exerciseId ? {
-        ...exercise,
-        workout_sets: exercise.workout_sets.map((set: any) => set.id === setId ? { ...set, [field]: value === '' ? null : value } : set)
-      } : exercise)
-    }));
+    setSession((current: any) => {
+      const next = {
+        ...current,
+        workout_exercises: current.workout_exercises.map((exercise: any) => exercise.id === exerciseId ? {
+          ...exercise,
+          workout_sets: exercise.workout_sets.map((set: any) => set.id === setId ? { ...set, [field]: value === '' ? null : value } : set)
+        } : exercise)
+      };
+      void cacheCurrentSession(next);
+      return next;
+    });
   };
 
   const saveSet = async (set: any) => {
     setSaving(true);
-    const { error: saveError } = await supabase.from('workout_sets').update({
+    const payload = {
       weight_kg: set.weight_kg === null || set.weight_kg === '' ? null : Number(set.weight_kg),
       reps: set.reps === null || set.reps === '' ? null : Number(set.reps),
       rir: set.rir === null || set.rir === '' ? null : Number(set.rir),
-      completed: Boolean(set.completed)
-    }).eq('id', set.id);
-    if (saveError) setError(saveError.message);
+      completed: Boolean(set.completed),
+      updated_at: new Date().toISOString()
+    };
+    await saveMutation({ operation: 'update', table: 'workout_sets', payload, match: { id: set.id }, dedupeKey: `set:${set.id}` });
     setSaving(false);
   };
 
   const toggleComplete = async (exerciseId: string, set: any) => {
-    editSetLocal(exerciseId, set.id, 'completed', !set.completed);
-    await supabase.from('workout_sets').update({ completed: !set.completed }).eq('id', set.id);
+    const completed = !set.completed;
+    editSetLocal(exerciseId, set.id, 'completed', completed);
+    await saveMutation({
+      operation: 'update', table: 'workout_sets', payload: { completed, updated_at: new Date().toISOString() },
+      match: { id: set.id }, dedupeKey: `set-complete:${set.id}`
+    });
+    if (completed) startTimer();
   };
 
   const addSet = async (exercise: any) => {
     const nextNumber = (exercise.workout_sets.at(-1)?.set_number ?? 0) + 1;
-    await supabase.from('workout_sets').insert({ workout_exercise_id: exercise.id, set_number: nextNumber, completed: false });
-    await load();
+    const nextSet = { id: crypto.randomUUID(), set_number: nextNumber, weight_kg: null, reps: null, rir: null, completed: false };
+    setSession((current: any) => {
+      const next = {
+        ...current,
+        workout_exercises: current.workout_exercises.map((item: any) => item.id === exercise.id ? { ...item, workout_sets: [...item.workout_sets, nextSet] } : item)
+      };
+      void cacheCurrentSession(next);
+      return next;
+    });
+    await saveMutation({
+      operation: 'upsert', table: 'workout_sets', payload: { ...nextSet, workout_exercise_id: exercise.id },
+      dedupeKey: `new-set:${nextSet.id}`
+    });
   };
 
   const replaceExercise = async (exercise: Exercise, permanent: boolean) => {
-    if (!replaceTarget) return;
+    if (!replaceTarget || !user) return;
     setSaving(true);
-    await supabase.from('workout_exercises').update({ exercise_id: exercise.id }).eq('id', replaceTarget.id);
-    if (permanent && replaceTarget.planned_routine_exercise_id) {
-      await supabase.from('routine_exercises').update({ exercise_id: exercise.id }).eq('id', replaceTarget.planned_routine_exercise_id);
+    const plannedId = replaceTarget.planned_routine_exercise_id;
+    setSession((current: any) => {
+      const next = {
+        ...current,
+        workout_exercises: current.workout_exercises.map((item: any) => item.id === replaceTarget.id ? { ...item, exercise_id: exercise.id, exercise } : item)
+      };
+      void cacheCurrentSession(next);
+      return next;
+    });
+    await saveMutation({
+      operation: 'update', table: 'workout_exercises', payload: { exercise_id: exercise.id },
+      match: { id: replaceTarget.id }, dedupeKey: `replace-session:${replaceTarget.id}`
+    });
+    if (permanent && plannedId) {
+      await updateCachedRoutineExercise(user.id, plannedId, exercise);
+      await saveMutation({
+        operation: 'update', table: 'routine_exercises', payload: { exercise_id: exercise.id, updated_at: new Date().toISOString() },
+        match: { id: plannedId }, dedupeKey: `replace-routine:${plannedId}`
+      });
     }
     setReplaceTarget(null);
     setSearch('');
-    await load();
     setSaving(false);
   };
 
   const finish = async () => {
-    if (!id) return;
-    await supabase.from('workout_sessions').update({ finished_at: new Date().toISOString() }).eq('id', id);
+    if (!id || !user || !session) return;
+    const finishedAt = new Date().toISOString();
+    const next = { ...session, finished_at: finishedAt };
+    setSession(next);
+    await Promise.all([
+      cacheCurrentSession(next),
+      cacheSessionSummary(user.id, {
+        id, routine_id: session.routine_id, session_date: session.session_date,
+        started_at: session.started_at, finished_at: finishedAt
+      })
+    ]);
+    await saveMutation({
+      operation: 'update', table: 'workout_sessions', payload: { finished_at: finishedAt, updated_at: finishedAt },
+      match: { id }, dedupeKey: `finish-session:${id}`
+    });
+    localStorage.removeItem(timerStorageKey);
     navigate('/entreno');
   };
 
@@ -110,8 +254,21 @@ export function WorkoutSessionPage() {
 
   return (
     <div className="page-grid workout-session-page">
-      <section className="session-header"><button className="icon-button" onClick={() => navigate('/entreno')}><ArrowLeft /></button><div><p className="eyebrow">SESIÓN ACTIVA</p><h1>{session.routine?.name || 'Entrenamiento'}</h1><p className="muted">{session.session_date} · Los cambios pueden ser solo hoy o permanentes.</p></div><span className="status-chip">{saving ? 'Guardando…' : 'En línea'}</span></section>
+      <section className="session-header"><button className="icon-button" onClick={() => navigate('/entreno')}><ArrowLeft /></button><div><p className="eyebrow">SESIÓN ACTIVA</p><h1>{session.routine?.name || 'Entrenamiento'}</h1><p className="muted">{session.session_date} · Los cambios pueden ser solo hoy o permanentes.</p></div><span className={!sync.online ? 'status-chip orange' : 'status-chip'}>{saving ? 'Guardando…' : !sync.online ? <><CloudOff size={14} /> Offline</> : sync.pending ? `${sync.pending} pendiente${sync.pending === 1 ? '' : 's'}` : 'En línea'}</span></section>
       {error && <div className="alert error">{error}</div>}
+
+      <section className={timer.finished ? 'panel rest-timer finished' : timer.running ? 'panel rest-timer running' : 'panel rest-timer'}>
+        <div className="rest-timer-copy">
+          <div className="metric-icon"><TimerReset /></div>
+          <div><p className="eyebrow">DESCANSO ENTRE SERIES</p><h2>{timer.finished ? '¡Listo, siguiente serie!' : 'Timer de 2 minutos'}</h2><p className="muted">Se inicia automáticamente al marcar una serie como completada.</p></div>
+        </div>
+        <div className="rest-timer-clock"><strong>{formatTimer(timer.remaining)}</strong><span>{timer.running ? 'corriendo' : timer.finished ? 'terminado' : 'preparado'}</span></div>
+        <div className="rest-timer-actions">
+          <button className="primary-button compact" onClick={toggleTimer}>{timer.running ? <Pause size={16} /> : <Play size={16} />} {timer.running ? 'Pausar' : timer.remaining < REST_SECONDS && timer.remaining > 0 ? 'Continuar' : 'Iniciar'}</button>
+          <button className="secondary-button compact" onClick={resetTimer}><RotateCcw size={16} /> Reiniciar</button>
+          {timer.finished && <BellRing className="timer-bell" />}
+        </div>
+      </section>
 
       <section className="exercise-stack">
         {session.workout_exercises.map((exercise: any) => (
@@ -134,12 +291,13 @@ export function WorkoutSessionPage() {
         ))}
       </section>
 
-      <div className="sticky-finish"><div><TimerReset /><span>Los datos se guardan al salir de cada campo.</span></div><button className="primary-button" onClick={finish}><CheckCircle2 /> Finalizar entrenamiento</button></div>
+      <div className="sticky-finish"><div><TimerReset /><span>Todo queda guardado localmente aunque pierdas internet.</span></div><button className="primary-button" onClick={finish}><CheckCircle2 /> Finalizar entrenamiento</button></div>
 
       {replaceTarget && (
         <Modal title={`Cambiar ${replaceTarget.exercise.name}`} onClose={() => setReplaceTarget(null)}>
           <div className="search-box"><Search size={17} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar ejercicio, músculo o máquina" /></div>
           <p className="muted small">El botón verde cambia solamente esta sesión. “Permanente” modifica la rutina para los próximos días.</p>
+          {!library.length && !navigator.onLine && <div className="alert error">La biblioteca todavía no está descargada. Ábrela una vez con internet.</div>}
           <div className="library-list">
             {filteredLibrary.map((exercise) => (
               <div className="library-item" key={exercise.id}><div><strong>{exercise.name}</strong><span>{exercise.primary_muscle} · {exercise.equipment}</span></div><div><button className="secondary-button compact" onClick={() => replaceExercise(exercise, false)}>Solo hoy</button><button className="primary-button compact" onClick={() => replaceExercise(exercise, true)}><Save size={14} /> Permanente</button></div></div>
