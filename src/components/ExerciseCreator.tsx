@@ -34,13 +34,25 @@ function slugify(value: string) {
     .slice(0, 48);
 }
 
-export function ExerciseCreator({ onCreated }: { onCreated: (exercise: Exercise) => void }) {
+type ExerciseCreatorProps = {
+  onCreated: (exercise: Exercise) => void;
+  initialName?: string;
+  buttonLabel?: string;
+};
+
+export function ExerciseCreator({ onCreated, initialName = '', buttonLabel = 'Crear ejercicio personalizado' }: ExerciseCreatorProps) {
   const supabase = getSupabase();
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const openCreator = () => {
+    setForm({ ...EMPTY_FORM, name: initialName.trim() });
+    setError('');
+    setOpen(true);
+  };
 
   const createExercise = async () => {
     if (!user) return;
@@ -82,7 +94,10 @@ export function ExerciseCreator({ onCreated }: { onCreated: (exercise: Exercise)
 
     const created = data as Exercise;
     const cached = (await getCached<Exercise[]>(cacheKeys.exerciseLibrary)) ?? [];
-    await setCached(cacheKeys.exerciseLibrary, [...cached.filter((item) => item.id !== created.id), created].sort((a, b) => a.name.localeCompare(b.name, 'es')));
+    await setCached(
+      cacheKeys.exerciseLibrary,
+      [...cached.filter((item) => item.id !== created.id), created].sort((a, b) => a.name.localeCompare(b.name, 'es'))
+    );
     onCreated(created);
     setForm(EMPTY_FORM);
     setOpen(false);
@@ -90,13 +105,13 @@ export function ExerciseCreator({ onCreated }: { onCreated: (exercise: Exercise)
   };
 
   if (!open) {
-    return <button type="button" className="secondary-button custom-exercise-open" onClick={() => setOpen(true)}><PlusCircle size={17} /> Crear ejercicio personalizado</button>;
+    return <button type="button" className="secondary-button custom-exercise-open" onClick={openCreator}><PlusCircle size={17} /> {buttonLabel}</button>;
   }
 
   return (
     <section className="custom-exercise-creator">
       <div className="custom-exercise-heading">
-        <div><strong>Nuevo ejercicio personalizado</strong><span>Ejemplo: Patada de glúteos en máquina</span></div>
+        <div><strong>Nuevo ejercicio personalizado</strong><span>Completa las categorías para encontrarlo fácilmente después.</span></div>
         <button type="button" className="icon-button" onClick={() => { setOpen(false); setError(''); }}><X size={17} /></button>
       </div>
       <div className="custom-exercise-grid">
