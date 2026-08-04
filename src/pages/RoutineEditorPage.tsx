@@ -1,6 +1,7 @@
 import { ArrowLeft, CalendarDays, Dumbbell, Plus, Search, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ExerciseCreator } from '../components/ExerciseCreator';
 import { Modal } from '../components/Modal';
 import { useAuth } from '../context/AuthContext';
 import { cacheKeys, getCached, saveMutation, setCached } from '../lib/offline';
@@ -34,11 +35,12 @@ export function RoutineEditorPage() {
     void (async () => {
       const [cachedRoutines, cachedLibrary] = await Promise.all([getCached<Routine[]>(cacheKeys.routines(user.id)), getCached<Exercise[]>(cacheKeys.exerciseLibrary)]);
       if (cancelled) return;
-      setRoutines(sortRoutines(cachedRoutines ?? [])); setLibrary(cachedLibrary ?? []); setLoading(false);
+      const visibleCachedLibrary = (cachedLibrary ?? []).filter((exercise) => !exercise.user_id || exercise.user_id === user.id);
+      setRoutines(sortRoutines(cachedRoutines ?? [])); setLibrary(visibleCachedLibrary); setLoading(false);
       if (!navigator.onLine) return;
       const [routineResult, libraryResult] = await Promise.all([
-        supabase.from('routine_templates').select(`id,name,day_order,routine_exercises(id,position,target_sets,rep_min,rep_max,rir_target,exercise_id,exercise:exercise_library(id,slug,name,category,primary_muscle,pattern,equipment))`).eq('user_id', user.id).order('day_order'),
-        supabase.from('exercise_library').select('*').order('name')
+        supabase.from('routine_templates').select(`id,name,day_order,routine_exercises(id,position,target_sets,rep_min,rep_max,rir_target,exercise_id,exercise:exercise_library(id,slug,name,category,primary_muscle,pattern,equipment,user_id))`).eq('user_id', user.id).order('day_order'),
+        supabase.from('exercise_library').select('id,slug,name,category,primary_muscle,pattern,equipment,user_id').order('name')
       ]);
       if (cancelled) return;
       if (routineResult.error) { setError(routineResult.error.message); return; }
@@ -50,13 +52,13 @@ export function RoutineEditorPage() {
     return () => { cancelled = true; };
   }, [supabase, user]);
 
-  const filteredLibrary = useMemo(() => { const query = search.trim().toLowerCase(); return library.filter((exercise) => !query || `${exercise.name} ${exercise.primary_muscle} ${exercise.equipment} ${exercise.pattern}`.toLowerCase().includes(query)); }, [library, search]);
+  const filteredLibrary = useMemo(() => { const query = search.trim().toLowerCase(); return library.filter((exercise) => !query || `${exercise.name} ${exercise.primary_muscle} ${exercise.equipment} ${exercise.pattern} ${exercise.category}`.toLowerCase().includes(query)); }, [library, search]);
   const updateRoutineLocal = (routineId: string, patch: Partial<Routine>) => { void persistLocal(routines.map((routine) => routine.id === routineId ? { ...routine, ...patch } : routine)); };
 
   const addDay = async () => {
     if (!user || routines.length >= 7) return;
     const usedOrders = new Set(routines.map((routine) => routine.day_order));
-    const dayOrder = [1,2,3,4,5,6,7].find((value) => !usedOrders.has(value)); if (!dayOrder) return;
+    const dayOrder = [1, 2, 3, 4, 5, 6, 7].find((value) => !usedOrders.has(value)); if (!dayOrder) return;
     const existingNames = new Set(routines.map((routine) => routine.name.toLowerCase())); let index = routines.length + 1; let name = `Rutina ${index}`;
     while (existingNames.has(name.toLowerCase())) name = `Rutina ${++index}`;
     const nextRoutine: Routine = { id: crypto.randomUUID(), name, day_order: dayOrder, routine_exercises: [] };
@@ -95,6 +97,11 @@ export function RoutineEditorPage() {
     setSelectedRoutineId(null); setSearch('');
   };
 
+  const handleCustomExerciseCreated = (exercise: Exercise) => {
+    setLibrary((current) => [...current.filter((item) => item.id !== exercise.id), exercise].sort((a, b) => a.name.localeCompare(b.name, 'es')));
+    void addExercise(exercise);
+  };
+
   if (loading) return <div className="page-loading">Cargando editor…</div>;
   return (
     <div className="page-grid">
@@ -107,7 +114,7 @@ export function RoutineEditorPage() {
           <div className="routine-exercise-editor">
             {!routine.routine_exercises.length && <div className="editor-empty"><Dumbbell /><span>Este día todavía no tiene ejercicios.</span></div>}
             {routine.routine_exercises.map((item, index) => <div className="routine-exercise-row" key={item.id}>
-              <div className="routine-exercise-name"><span>{index + 1}</span><div><strong>{item.exercise.name}</strong><small>{item.exercise.primary_muscle} · {item.exercise.equipment}</small></div></div>
+              <div className="routine-exercise-name"><span>{index + 1}</span><div><strong>{item.exercise.name}</strong><small>{item.exercise.primary_muscle} · {item.exercise.equipment}{item.exercise.user_id ? ' · Personalizado' : ''}</small></div></div>
               <label>Series<input type="number" min="1" max="10" value={item.target_sets} onChange={(event) => updateExerciseLocal(routine.id, item.id, { target_sets: Number(event.target.value) })} onBlur={() => saveExerciseTargets(item)} /></label>
               <label>Reps mín.<input type="number" min="1" max="100" value={item.rep_min} onChange={(event) => updateExerciseLocal(routine.id, item.id, { rep_min: Number(event.target.value) })} onBlur={() => saveExerciseTargets(item)} /></label>
               <label>Reps máx.<input type="number" min="1" max="100" value={item.rep_max} onChange={(event) => updateExerciseLocal(routine.id, item.id, { rep_max: Number(event.target.value) })} onBlur={() => saveExerciseTargets(item)} /></label>
@@ -118,7 +125,12 @@ export function RoutineEditorPage() {
           <button className="secondary-button add-exercise-button" onClick={() => setSelectedRoutineId(routine.id)}><Plus size={16} /> Agregar ejercicio</button>
         </article>)}
       </section>
-      {selectedRoutineId && <Modal title="Agregar ejercicio" onClose={() => { setSelectedRoutineId(null); setSearch(''); }}><div className="search-box"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nombre, músculo o máquina" /></div>{!library.length && !navigator.onLine && <div className="alert error">La biblioteca no está descargada todavía.</div>}<div className="library-list">{filteredLibrary.map((exercise) => <button className="exercise-choice" key={exercise.id} onClick={() => addExercise(exercise)}><div><strong>{exercise.name}</strong><span>{exercise.primary_muscle} · {exercise.equipment}</span></div><Plus size={18} /></button>)}</div></Modal>}
+      {selectedRoutineId && <Modal title="Agregar ejercicio" onClose={() => { setSelectedRoutineId(null); setSearch(''); }}>
+        <div className="search-box"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nombre, músculo o máquina" /></div>
+        <ExerciseCreator onCreated={handleCustomExerciseCreated} />
+        {!library.length && !navigator.onLine && <div className="alert error">La biblioteca no está descargada todavía.</div>}
+        <div className="library-list">{filteredLibrary.map((exercise) => <button className="exercise-choice" key={exercise.id} onClick={() => addExercise(exercise)}><div><strong>{exercise.name}</strong><span>{exercise.primary_muscle} · {exercise.equipment}{exercise.user_id ? ' · Personalizado' : ''}</span></div><Plus size={18} /></button>)}</div>
+      </Modal>}
     </div>
   );
 }
