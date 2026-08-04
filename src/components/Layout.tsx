@@ -1,6 +1,7 @@
-import { Activity, BarChart3, Dumbbell, Home, LogOut, MoreHorizontal, Salad } from 'lucide-react';
+import { Activity, BarChart3, CloudOff, CloudUpload, Dumbbell, Home, LogOut, MoreHorizontal, Salad } from 'lucide-react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useOfflineStatus } from '../hooks/useOfflineStatus';
 
 const links = [
   { to: '/', label: 'Hoy', icon: Home },
@@ -12,6 +13,16 @@ const links = [
 
 export function Layout() {
   const { profile, signOut } = useAuth();
+  const sync = useOfflineStatus();
+  const SyncIcon = !sync.online ? CloudOff : sync.syncing || sync.pending > 0 ? CloudUpload : Activity;
+  const syncText = !sync.online
+    ? `Sin conexión${sync.pending ? ` · ${sync.pending} pendiente${sync.pending === 1 ? '' : 's'}` : ''}`
+    : sync.syncing
+      ? `Sincronizando${sync.pending ? ` ${sync.pending}` : ''}…`
+      : sync.pending > 0
+        ? `${sync.pending} cambio${sync.pending === 1 ? '' : 's'} pendiente${sync.pending === 1 ? '' : 's'}`
+        : 'Datos sincronizados';
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -33,7 +44,9 @@ export function Layout() {
         ))}
       </nav>
 
-      <div className="offline-badge"><Activity size={15} /> PWA · datos sincronizados</div>
+      <div className={!sync.online ? 'offline-badge warning' : sync.pending ? 'offline-badge pending' : 'offline-badge'} title={sync.lastError ?? undefined}>
+        <SyncIcon size={15} /> {syncText}
+      </div>
     </div>
   );
 }
