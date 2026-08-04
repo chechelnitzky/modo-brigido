@@ -1,0 +1,43 @@
+.field-help { color: var(--muted); font-size: 10px; line-height: 1.35; }
+.segmented.full { width: 100%; grid-template-columns: 1fr 1fr; }
+.segmented.full button { width: 100%; }
+.settings-save { justify-self: start; }
+.inline-reload { margin-left: 12px; }
+.bodyfat-panel { overflow: hidden; }
+.bodyfat-empty { display: flex; gap: 14px; align-items: flex-start; padding: 8px 0; }
+.bodyfat-empty > svg { color: var(--green); flex: 0 0 auto; }
+.bodyfat-empty strong { display: block; margin-bottom: 5px; }
+.bodyfat-empty p { margin: 0; }
+.bodyfat-hero { display: grid; grid-template-columns: minmax(180px,260px) 1fr; gap: 24px; align-items: center; margin-bottom: 20px; }
+.bodyfat-hero span,.bodyfat-grid span { display:block;color:var(--muted);font-size:11px;margin-bottom:5px; }
+.bodyfat-hero strong { display:block;font-size:clamp(42px,8vw,72px);line-height:.95;color:var(--green);letter-spacing:-3px; }
+.bodyfat-hero small { display:block;margin-top:8px;color:#d7dfda; }
+.bodyfat-gauge { height:18px;border-radius:99px;overflow:hidden;background:linear-gradient(90deg,#5ada47 0 30%,#d8df4a 30% 50%,#f2ad3d 50% 68%,#d94d43 68% 100%); }
+.bodyfat-gauge i { display:block;height:100%;border-right:4px solid white;filter:drop-shadow(0 0 5px black); }
+.bodyfat-grid { display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px; }
+.bodyfat-grid > div { background:#0d1410;border:1px solid #2c3a32;border-radius:15px;padding:14px; }
+.bodyfat-grid strong { font-size:17px; }
+.bodyfat-target { margin-top:14px;padding:12px 14px;display:flex;align-items:center;gap:9px;border-radius:14px;background:rgba(112,228,72,.08);border:1px solid rgba(112,228,72,.2);color:#d9f6d0; }
+.bodyfat-target svg { color:var(--green); }
+.bodyfat-disclaimer { color:var(--muted);font-size:10px;line-height:1.45;margin:14px 0 0; }
+.editor-toolbar { display:flex;align-items:center;justify-content:space-between;gap:18px; }
+.editor-toolbar p { margin:5px 0 0; }
+.routine-editor-stack,.routine-editor-card,.routine-exercise-editor { display:grid;gap:16px; }
+.routine-exercise-editor { gap:8px; }
+.routine-editor-heading { display:grid;grid-template-columns:46px minmax(0,1fr) auto;gap:12px;align-items:end; }
+.day-badge { width:46px;height:46px;display:grid;place-items:center;border-radius:14px;background:rgba(112,228,72,.1);border:1px solid rgba(112,228,72,.25);color:var(--green);font-weight:900;font-size:18px; }
+.routine-exercise-row { display:grid;grid-template-columns:minmax(210px,2fr) repeat(4,minmax(74px,.55fr)) 42px;gap:8px;align-items:end;border:1px solid #2d3c33;background:#0e1511;border-radius:15px;padding:11px; }
+.routine-exercise-row label { gap:4px; }.routine-exercise-row input { padding:9px 8px;text-align:center; }
+.routine-exercise-name { display:flex;gap:10px;align-items:center;align-self:center; }
+.routine-exercise-name > span { width:28px;height:28px;display:grid;place-items:center;border-radius:9px;color:var(--green);background:rgba(112,228,72,.08);font-weight:800; }
+.routine-exercise-name strong,.routine-exercise-name small { display:block; }.routine-exercise-name small { color:var(--muted);margin-top:3px; }
+.danger-icon { color:#ff8b8b;border-color:rgba(255,102,102,.25); }.add-exercise-button { justify-self:start; }
+.editor-empty { display:flex;gap:9px;align-items:center;color:var(--muted);border:1px dashed #34443a;border-radius:14px;padding:15px; }.editor-empty svg { color:var(--green); }
+.exercise-choice { width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px;border:1px solid #2e3c34;background:#0d1410;color:#eef3ef;border-radius:14px;text-align:left; }
+.exercise-choice span { display:block;color:var(--muted);font-size:11px;margin-top:4px; }.exercise-choice>svg { color:var(--green); }
+.records-panel { display:grid;gap:12px; }.records-grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px; }
+.record-card { border:1px solid #2e3d34;background:#0e1511;border-radius:16px;padding:14px;display:flex;align-items:center;justify-content:space-between;gap:15px; }
+.record-card span,.record-card small,.record-card em { display:block;color:var(--muted);font-size:10px;font-style:normal; }.record-card strong { display:block;margin-top:4px; }.record-card>div:last-child{text-align:right}.record-card>div:last-child strong{color:var(--green)}
+@media(max-width:900px){.bodyfat-grid{grid-template-columns:1fr 1fr}.routine-exercise-row{grid-template-columns:minmax(180px,1.5fr) repeat(4,minmax(62px,.55fr)) 42px}}
+@media(max-width:700px){.bodyfat-hero{grid-template-columns:1fr;gap:14px}.editor-toolbar{flex-direction:column;align-items:stretch}.routine-editor-heading{grid-template-columns:42px 1fr;align-items:stretch}.routine-editor-heading .danger-button{grid-column:1/-1}.routine-exercise-row{grid-template-columns:repeat(4,1fr) 42px}.routine-exercise-name{grid-column:1/-1}.records-grid{grid-template-columns:1fr}.inline-reload{display:flex;margin:10px 0 0}}
+@media(max-width:480px){.bodyfat-grid{grid-template-columns:1fr}.routine-exercise-row{grid-template-columns:repeat(2,1fr)}.routine-exercise-name{grid-column:1/-1}.routine-exercise-row .danger-icon{grid-column:1/-1;width:100%}}
