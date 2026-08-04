@@ -1,6 +1,7 @@
 import { ArrowLeft, BellRing, Check, CheckCircle2, CloudOff, Dumbbell, Pause, Play, RefreshCw, RotateCcw, Save, Search, TimerReset } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { ExerciseCreator } from '../components/ExerciseCreator';
 import { Modal } from '../components/Modal';
 import { useAuth } from '../context/AuthContext';
 import { useOfflineStatus } from '../hooks/useOfflineStatus';
@@ -130,7 +131,7 @@ export function WorkoutSessionPageV2() {
     await syncPendingMutations();
     const { data, error: loadError } = await supabase
       .from('workout_sessions')
-      .select(`id,user_id,routine_id,session_date,started_at,finished_at,notes,routine:routine_templates(name),workout_exercises(id,position,exercise_id,planned_routine_exercise_id,exercise:exercise_library(id,slug,name,category,primary_muscle,pattern,equipment),planned:routine_exercises(target_sets,rep_min,rep_max,rir_target),workout_sets(id,set_number,weight_kg,reps,rir,completed))`)
+      .select(`id,user_id,routine_id,session_date,started_at,finished_at,notes,routine:routine_templates(name),workout_exercises(id,position,exercise_id,planned_routine_exercise_id,exercise:exercise_library(id,slug,name,category,primary_muscle,pattern,equipment,user_id),planned:routine_exercises(target_sets,rep_min,rep_max,rir_target),workout_sets(id,set_number,weight_kg,reps,rir,completed))`)
       .eq('id', id)
       .single();
     if (loadError) {
@@ -221,16 +222,24 @@ export function WorkoutSessionPageV2() {
     const cached = await getCached<Exercise[]>(cacheKeys.exerciseLibrary);
     if (cached) setLibrary(cached);
     if (!navigator.onLine) return;
-    const { data } = await supabase.from('exercise_library').select('*').order('name');
+    const { data } = await supabase
+      .from('exercise_library')
+      .select('id,slug,name,category,primary_muscle,pattern,equipment,user_id')
+      .order('name');
     const next = (data ?? []) as Exercise[];
     setLibrary(next);
     await setCached(cacheKeys.exerciseLibrary, next);
   };
 
   const filteredLibrary = useMemo(() => {
-    const query = search.toLowerCase();
-    return library.filter((exercise) => !query || `${exercise.name} ${exercise.primary_muscle} ${exercise.equipment}`.toLowerCase().includes(query));
+    const query = search.trim().toLowerCase();
+    return library.filter((exercise) => !query || `${exercise.name} ${exercise.primary_muscle} ${exercise.equipment} ${exercise.pattern} ${exercise.category}`.toLowerCase().includes(query));
   }, [library, search]);
+
+  const handleReplacementExerciseCreated = (exercise: Exercise) => {
+    setLibrary((current) => [...current.filter((item) => item.id !== exercise.id), exercise].sort((a, b) => a.name.localeCompare(b.name, 'es')));
+    setSearch(exercise.name);
+  };
 
   const editSetLocal = (exerciseId: string, setId: string, field: string, value: string | boolean) => {
     setSession((current: any) => {
@@ -358,6 +367,9 @@ export function WorkoutSessionPageV2() {
 
   if (!session) return <div className="page-loading">Preparando entrenamiento…</div>;
 
+  const searchedName = search.trim();
+  const noSearchResults = Boolean(searchedName) && filteredLibrary.length === 0;
+
   return (
     <div className="page-grid workout-session-page">
       <section className="session-header">
@@ -416,11 +428,17 @@ export function WorkoutSessionPageV2() {
 
       <div className="sticky-finish"><div><TimerReset /><span>Todo queda guardado localmente aunque pierdas internet.</span></div><button className="primary-button" onClick={finish}><CheckCircle2 /> Finalizar entrenamiento</button></div>
 
-      {replaceTarget && <Modal title={`Cambiar ${replaceTarget.exercise?.name ?? 'ejercicio'}`} onClose={() => setReplaceTarget(null)}>
+      {replaceTarget && <Modal title={`Cambiar ${replaceTarget.exercise?.name ?? 'ejercicio'}`} onClose={() => { setReplaceTarget(null); setSearch(''); }}>
         <div className="search-box"><Search size={17} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar ejercicio, músculo o máquina" /></div>
         <p className="muted small">“Solo hoy” modifica esta sesión. “Permanente” cambia la rutina futura.</p>
         {!library.length && !navigator.onLine && <div className="alert error">La biblioteca todavía no está descargada. Ábrela una vez con internet.</div>}
-        <div className="library-list">{filteredLibrary.map((exercise) => <div className="library-item" key={exercise.id}><div><strong>{exercise.name}</strong><span>{exercise.primary_muscle} · {exercise.equipment}</span></div><div><button className="secondary-button compact" onClick={() => replaceExercise(exercise, false)}>Solo hoy</button><button className="primary-button compact" onClick={() => replaceExercise(exercise, true)}><Save size={14} /> Permanente</button></div></div>)}</div>
+        {noSearchResults && <div className="editor-empty"><Dumbbell /><span>No encontramos “{searchedName}”. Puedes crearlo ahora y después elegir si el cambio es solo por hoy o permanente.</span></div>}
+        <ExerciseCreator
+          initialName={searchedName}
+          buttonLabel={noSearchResults ? `Agregar “${searchedName}” como ejercicio nuevo` : 'Crear ejercicio personalizado'}
+          onCreated={handleReplacementExerciseCreated}
+        />
+        <div className="library-list">{filteredLibrary.map((exercise) => <div className="library-item" key={exercise.id}><div><strong>{exercise.name}</strong><span>{exercise.primary_muscle} · {exercise.equipment}{exercise.user_id ? ' · Personalizado' : ''}</span></div><div><button className="secondary-button compact" onClick={() => replaceExercise(exercise, false)}>Solo hoy</button><button className="primary-button compact" onClick={() => replaceExercise(exercise, true)}><Save size={14} /> Permanente</button></div></div>)}</div>
       </Modal>}
     </div>
   );
