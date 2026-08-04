@@ -17,6 +17,10 @@
 .rest-timer-clock span { display: block; color: var(--muted); text-transform: uppercase; font-size: 9px; letter-spacing: 1.2px; }
 .rest-timer-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 .timer-bell { color: var(--orange); animation: timer-ring .7s ease-in-out infinite alternate; }
+.notification-permission-button { color: #dfffd4; border-color: rgba(112,228,72,.32); }
+.timer-notification-state { min-height: 34px; padding: 7px 10px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid #34453b; border-radius: 11px; font-size: 11px; white-space: nowrap; }
+.timer-notification-state.enabled { color: var(--green); border-color: rgba(112,228,72,.3); background: rgba(112,228,72,.07); }
+.timer-notification-state.blocked { color: #ffbd91; border-color: rgba(255,173,66,.34); background: rgba(255,173,66,.06); }
 @keyframes timer-ring { from { transform: rotate(-10deg); } to { transform: rotate(10deg); } }
 
 /* Selector de fecha */
@@ -42,6 +46,7 @@
   .rest-timer-clock { min-width: 105px; }
   .rest-timer-actions { justify-content: stretch; }
   .rest-timer-actions button { flex: 1; }
+  .timer-notification-state { flex: 1 1 100%; justify-content: center; }
   .exercise-actions { width: 100%; justify-content: stretch; margin-left: 51px; }
   .exercise-actions button { flex: 1; }
   .exercise-title .exercise-actions .secondary-button { margin-left: 0; }
