@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { getSupabase } from '../lib/supabase';
+import { cacheKeys, cacheProfile, getCached, syncPendingMutations } from '../lib/offline';
 import type { Profile } from '../types';
 
 interface AuthContextValue {
@@ -21,18 +22,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const refreshProfile = async () => {
-    const currentUser = (await supabase.auth.getUser()).data.user;
+    const currentSession = (await supabase.auth.getSession()).data.session;
+    const currentUser = currentSession?.user;
     if (!currentUser) {
       setProfile(null);
       return;
     }
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', currentUser.id)
-      .single();
-    if (error) throw error;
-    setProfile(data as Profile);
+
+    const cached = await getCached<Profile>(cacheKeys.profile(currentUser.id));
+    if (cached) setProfile(cached);
+    if (!navigator.onLine) {
+      if (!cached) throw new Error('Abre la app con internet una vez para guardar tu perfil en este dispositivo.');
+      return;
+    }
+
+    const { data, error } = await supabase.from('profiles').select('*').eq('id', currentUser.id).single();
+    if (error) {
+      if (!cached) throw error;
+      return;
+    }
+    const next = data as Profile;
+    setProfile(next);
+    await cacheProfile(next);
   };
 
   useEffect(() => {
@@ -43,6 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (data.session) {
         try {
           await refreshProfile();
+          if (navigator.onLine) void syncPendingMutations();
         } catch (error) {
           console.error(error);
         }
@@ -55,6 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (nextSession) {
         try {
           await refreshProfile();
+          if (navigator.onLine) void syncPendingMutations();
         } catch (error) {
           console.error(error);
         }
