@@ -1,4 +1,4 @@
-import { Check, ChevronRight, Dumbbell, Flame, Footprints, Moon, Ruler, Save, Scale, Zap } from 'lucide-react';
+import { Check, ChevronRight, CloudOff, Dumbbell, Flame, Footprints, Moon, Ruler, Save, Scale, Zap } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ProgressBar } from '../components/ProgressBar';
@@ -6,11 +6,13 @@ import { ScoreRing } from '../components/ScoreRing';
 import { useAuth } from '../context/AuthContext';
 import { dateInTimezone, prettyDate } from '../lib/date';
 import { dailyScore, numberOrNull } from '../lib/helpers';
+import { cacheDailyLog, cacheKeys, getCached, saveMutation } from '../lib/offline';
 import { getSupabase } from '../lib/supabase';
 import type { DailyLog } from '../types';
 
 function emptyLog(userId: string, date: string): DailyLog {
   return {
+    id: crypto.randomUUID(),
     user_id: userId,
     log_date: date,
     weight_kg: null,
@@ -36,22 +38,33 @@ export function TodayPage() {
   const today = dateInTimezone(profile?.timezone || 'America/Santiago');
   const [log, setLog] = useState<DailyLog | null>(null);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [savedState, setSavedState] = useState<'none' | 'synced' | 'offline'>('none');
   const [error, setError] = useState('');
 
   useEffect(() => {
     if (!user) return;
-    setLog(null);
-    supabase.from('daily_logs').select('*').eq('user_id', user.id).eq('log_date', today).maybeSingle()
-      .then(({ data, error: loadError }) => {
-        if (loadError) setError(loadError.message);
-        setLog(data ? data as DailyLog : emptyLog(user.id, today));
-      });
+    let cancelled = false;
+    void (async () => {
+      setError('');
+      const cached = await getCached<DailyLog>(cacheKeys.daily(user.id, today));
+      if (!cancelled) setLog(cached ?? emptyLog(user.id, today));
+      if (!navigator.onLine) return;
+      const { data, error: loadError } = await supabase.from('daily_logs').select('*').eq('user_id', user.id).eq('log_date', today).maybeSingle();
+      if (cancelled) return;
+      if (loadError) {
+        if (!cached) setError(loadError.message);
+        return;
+      }
+      const next = (data as DailyLog | null) ?? cached ?? emptyLog(user.id, today);
+      setLog(next);
+      await cacheDailyLog(next);
+    })();
+    return () => { cancelled = true; };
   }, [supabase, user, today]);
 
   const score = useMemo(() => dailyScore(log, profile), [log, profile]);
   const update = <K extends keyof DailyLog>(key: K, value: DailyLog[K]) => {
-    setSaved(false);
+    setSavedState('none');
     setLog((current) => current ? { ...current, [key]: value } : current);
   };
 
@@ -59,18 +72,18 @@ export function TodayPage() {
     if (!log || !user) return;
     setSaving(true);
     setError('');
-    const payload = { ...log, user_id: user.id, log_date: today, updated_at: new Date().toISOString() };
-    delete payload.id;
-    const { data, error: saveError } = await supabase
-      .from('daily_logs')
-      .upsert(payload, { onConflict: 'user_id,log_date' })
-      .select()
-      .single();
-    if (saveError) setError(saveError.message);
-    else {
-      setLog(data as DailyLog);
-      setSaved(true);
-    }
+    const next: DailyLog = { ...log, id: log.id ?? crypto.randomUUID(), user_id: user.id, log_date: today };
+    setLog(next);
+    await cacheDailyLog(next);
+    const payload: Record<string, unknown> = { ...next, updated_at: new Date().toISOString() };
+    const result = await saveMutation({
+      operation: 'upsert',
+      table: 'daily_logs',
+      payload,
+      onConflict: 'user_id,log_date',
+      dedupeKey: `daily:${user.id}:${today}`
+    });
+    setSavedState(result === 'synced' ? 'synced' : 'offline');
     setSaving(false);
   };
 
@@ -95,7 +108,7 @@ export function TodayPage() {
       </section>
 
       <section className="panel checkin-panel">
-        <div className="section-title"><div><p className="eyebrow">CHECK-IN</p><h2>Registro diario</h2></div><span className="status-chip">{saved ? <><Check size={15} /> Guardado</> : 'Pendiente'}</span></div>
+        <div className="section-title"><div><p className="eyebrow">CHECK-IN</p><h2>Registro diario</h2></div><span className={savedState === 'offline' ? 'status-chip orange' : 'status-chip'}>{savedState === 'synced' ? <><Check size={15} /> Sincronizado</> : savedState === 'offline' ? <><CloudOff size={15} /> Guardado offline</> : 'Pendiente'}</span></div>
         <div className="form-grid">
           <label><span><Scale size={16} /> Peso (kg)</span><input inputMode="decimal" type="number" step="0.1" value={log.weight_kg ?? ''} onChange={(e) => update('weight_kg', numberOrNull(e.target.value))} /></label>
           <label><span><Ruler size={16} /> Cintura (cm)</span><input inputMode="decimal" type="number" step="0.1" value={log.waist_cm ?? ''} onChange={(e) => update('waist_cm', numberOrNull(e.target.value))} /></label>
