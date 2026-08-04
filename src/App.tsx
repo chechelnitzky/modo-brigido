@@ -9,8 +9,8 @@ import { RoutineEditorPage } from './pages/RoutineEditorPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { SetupPage } from './pages/SetupPage';
 import { TodayPage } from './pages/TodayPage';
-import { WorkoutSessionPage } from './pages/WorkoutSessionPage';
-import { WorkoutsPage } from './pages/WorkoutsPage';
+import { WorkoutSessionPageV2 } from './pages/WorkoutSessionPageV2';
+import { WorkoutsPageV2 } from './pages/WorkoutsPageV2';
 
 function AuthenticatedApp() {
   const { session, loading } = useAuth();
@@ -18,8 +18,8 @@ function AuthenticatedApp() {
   if (!session) return <AuthPage />;
   return <HashRouter><Routes><Route element={<Layout />}>
     <Route path="/" element={<TodayPage />} />
-    <Route path="/entreno" element={<WorkoutsPage />} />
-    <Route path="/sesion/:id" element={<WorkoutSessionPage />} />
+    <Route path="/entreno" element={<WorkoutsPageV2 />} />
+    <Route path="/sesion/:id" element={<WorkoutSessionPageV2 />} />
     <Route path="/rutinas" element={<RoutineEditorPage />} />
     <Route path="/nutricion" element={<NutritionPage />} />
     <Route path="/progreso" element={<ProgressPage />} />
