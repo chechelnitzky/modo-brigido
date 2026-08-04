@@ -5,6 +5,7 @@ import { Sparkline } from '../components/Sparkline';
 import { useAuth } from '../context/AuthContext';
 import { average } from '../lib/helpers';
 import { shortDate } from '../lib/date';
+import { cacheDailyLogs, cacheKeys, getCached, setCached } from '../lib/offline';
 import { getSupabase } from '../lib/supabase';
 import type { DailyLog } from '../types';
 
@@ -17,14 +18,33 @@ export function ProgressPage() {
 
   useEffect(() => {
     if (!user) return;
-    Promise.all([
-      supabase.from('daily_logs').select('*').eq('user_id', user.id).order('log_date'),
-      supabase.from('workout_sessions').select('id,session_date,finished_at').eq('user_id', user.id).order('session_date')
-    ]).then(([logResult, sessionResult]) => {
-      setLogs((logResult.data ?? []) as DailyLog[]);
-      setSessions(sessionResult.data ?? []);
-      setLoading(false);
-    });
+    let cancelled = false;
+    void (async () => {
+      const [cachedLogs, cachedSessions] = await Promise.all([
+        getCached<DailyLog[]>(cacheKeys.dailyList(user.id)),
+        getCached<any[]>(cacheKeys.sessions(user.id))
+      ]);
+      if (!cancelled) {
+        setLogs(cachedLogs ?? []);
+        setSessions(cachedSessions ?? []);
+        setLoading(false);
+      }
+      if (!navigator.onLine) return;
+      const [logResult, sessionResult] = await Promise.all([
+        supabase.from('daily_logs').select('*').eq('user_id', user.id).order('log_date'),
+        supabase.from('workout_sessions').select('id,routine_id,session_date,finished_at,started_at').eq('user_id', user.id).order('session_date')
+      ]);
+      if (cancelled) return;
+      const nextLogs = (logResult.data ?? []) as DailyLog[];
+      const nextSessions = sessionResult.data ?? [];
+      setLogs(nextLogs);
+      setSessions(nextSessions);
+      await Promise.all([
+        cacheDailyLogs(user.id, nextLogs),
+        setCached(cacheKeys.sessions(user.id), nextSessions)
+      ]);
+    })();
+    return () => { cancelled = true; };
   }, [supabase, user]);
 
   const metrics = useMemo(() => {
