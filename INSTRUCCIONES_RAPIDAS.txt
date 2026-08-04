@@ -1,0 +1,13 @@
+MODO BRÍGIDO — 7 PASOS
+
+1. Descomprime el ZIP.
+2. Sube TODO el contenido interior a tu repositorio GitHub.
+3. Crea un proyecto gratuito en Supabase.
+4. Ejecuta supabase/schema.sql en Supabase > SQL Editor.
+5. Copia Project URL y Publishable key.
+6. En GitHub: Settings > Pages > Source > GitHub Actions.
+7. Abre la web publicada, pega las dos claves y crea tu cuenta.
+
+Tu esposa repite solamente el paso 7 con su propio correo.
+
+Más detalles en README.md.
