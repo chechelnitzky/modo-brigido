@@ -14,6 +14,7 @@ export type Profile = {
   height_cm: number | null;
   neck_cm: number | null;
   hip_cm: number | null;
+  steps_per_km: number | null;
 };
 
 export type DailyLog = {
