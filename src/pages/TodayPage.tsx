@@ -5,12 +5,14 @@ import { BodyCompositionCard } from '../components/BodyCompositionCard';
 import { DecimalInput } from '../components/DecimalInput';
 import { ProgressBar } from '../components/ProgressBar';
 import { ScoreRing } from '../components/ScoreRing';
+import { StepDistanceInput } from '../components/StepDistanceInput';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedDate } from '../context/SelectedDateContext';
 import { estimateBodyCompositionForLog } from '../lib/bodyFat';
 import { prettyDate } from '../lib/date';
 import { dailyScore, numberOrNull } from '../lib/helpers';
 import { cacheDailyLog, cacheKeys, cacheProfile, getCached, saveMutation } from '../lib/offline';
+import { formatKm, stepsToKm } from '../lib/steps';
 import { getSupabase } from '../lib/supabase';
 import type { DailyLog } from '../types';
 
@@ -135,6 +137,7 @@ export function TodayPage() {
   const calories = log.calories ?? 0;
   const protein = log.protein_g ?? 0;
   const steps = log.steps ?? 0;
+  const distanceKm = stepsToKm(steps, profile.height_cm, profile.steps_per_km);
 
   return (
     <div className="page-grid dashboard-page">
@@ -163,7 +166,7 @@ export function TodayPage() {
         <article className="metric-card"><div className="metric-icon"><Activity /></div><div><span>Grasa estimada</span><strong>{bodyComposition ? `${bodyComposition.bodyFatPercentage.toFixed(1)}%` : '—'}</strong></div></article>
         <article className="metric-card"><div className="metric-icon orange"><Flame /></div><div><span>Calorías</span><strong>{calories.toLocaleString('es-CL')} <small>/ {profile.calories_target}</small></strong><ProgressBar value={calories} max={profile.calories_target} /></div></article>
         <article className="metric-card"><div className="metric-icon"><Zap /></div><div><span>Proteína</span><strong>{protein} <small>/ {profile.protein_target} g</small></strong><ProgressBar value={protein} max={profile.protein_target} /></div></article>
-        <article className="metric-card"><div className="metric-icon"><Footprints /></div><div><span>Pasos</span><strong>{steps.toLocaleString('es-CL')} <small>/ {profile.steps_target}</small></strong><ProgressBar value={steps} max={profile.steps_target} /></div></article>
+        <article className="metric-card"><div className="metric-icon"><Footprints /></div><div><span>Pasos</span><strong>{steps.toLocaleString('es-CL')} <small>/ {profile.steps_target}</small></strong><small className="metric-subvalue">{formatKm(distanceKm)} km estimados</small><ProgressBar value={steps} max={profile.steps_target} /></div></article>
       </section>
 
       <section className="panel checkin-panel">
@@ -180,7 +183,12 @@ export function TodayPage() {
           {profile.sex === 'female' && <label><span><Ruler size={16} /> Cadera (cm)</span><DecimalInput value={log.hip_cm ?? profile.hip_cm} onValueChange={(value) => update('hip_cm', value)} /><small className="field-help">Mide en la parte más ancha.</small></label>}
           <label><span><Flame size={16} /> Calorías</span><input inputMode="numeric" type="number" value={log.calories ?? ''} onChange={(e) => update('calories', numberOrNull(e.target.value))} /></label>
           <label><span><Zap size={16} /> Proteína (g)</span><input inputMode="numeric" type="number" value={log.protein_g ?? ''} onChange={(e) => update('protein_g', numberOrNull(e.target.value))} /></label>
-          <label><span><Footprints size={16} /> Pasos</span><input inputMode="numeric" type="number" value={log.steps ?? ''} onChange={(e) => update('steps', numberOrNull(e.target.value))} /></label>
+          <StepDistanceInput
+            steps={log.steps}
+            heightCm={profile.height_cm}
+            calibratedStepsPerKm={profile.steps_per_km}
+            onStepsChange={(value) => update('steps', value)}
+          />
         </div>
         <div className="rating-grid">
           <div><span><Moon size={16} /> Sueño</span><Rating value={log.sleep_score} onChange={(value) => update('sleep_score', value)} /></div>
