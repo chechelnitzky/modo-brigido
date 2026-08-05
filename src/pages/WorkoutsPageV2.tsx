@@ -1,4 +1,4 @@
-import { CalendarDays, CheckCircle2, ChevronRight, CloudOff, Dumbbell, Pencil, Play, RefreshCw, RotateCcw, Trophy } from 'lucide-react';
+import { CalendarDays, CheckCircle2, ChevronRight, CloudOff, Dumbbell, LockKeyhole, Pencil, Play, RefreshCw, RotateCcw, Trophy } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -9,6 +9,20 @@ import { getSupabase } from '../lib/supabase';
 
 type Routine = { id: string; name: string; day_order: number; routine_exercises: Array<{ id: string; position: number; target_sets: number; rep_min: number; rep_max: number; rir_target: number; exercise: { id: number; name: string; primary_muscle: string; equipment: string } }> };
 type PersonalRecord = { exerciseId: number; exerciseName: string; weightKg: number; reps: number; estimatedOneRepMax: number; date: string };
+
+function toDateKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function getWeekRange(dateKey: string) {
+  const date = new Date(`${dateKey}T12:00:00`);
+  const mondayOffset = (date.getDay() + 6) % 7;
+  const start = new Date(date);
+  start.setDate(date.getDate() - mondayOffset);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  return { start: toDateKey(start), end: toDateKey(end) };
+}
 
 function calculatePersonalRecords(rows: any[]): PersonalRecord[] {
   const records = new Map<number, PersonalRecord>();
@@ -33,31 +47,42 @@ export function WorkoutsPageV2() {
   const { selectedDate, isToday, resetToToday } = useSelectedDate();
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [sessions, setSessions] = useState<any[]>([]);
+  const [weekSessions, setWeekSessions] = useState<any[]>([]);
   const [records, setRecords] = useState<PersonalRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState<string | null>(null);
   const [updatingSession, setUpdatingSession] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const weekRange = getWeekRange(selectedDate);
   const sessionCacheKey = user ? `sessions:${user.id}:${selectedDate}` : `sessions:anonymous:${selectedDate}`;
+  const weekSessionCacheKey = user ? `sessions-week:${user.id}:${weekRange.start}` : `sessions-week:anonymous:${weekRange.start}`;
 
   const persistSelectedDateSessions = async (next: any[]) => {
     setSessions(next);
     await setCached(sessionCacheKey, next);
   };
 
+  const persistWeekSessions = async (next: any[]) => {
+    setWeekSessions(next);
+    await setCached(weekSessionCacheKey, next);
+  };
+
   const load = async () => {
     if (!user) return;
     setLoading(true);
     setError('');
-    const [cachedRoutines, cachedDateSessions, cachedAllSessions, cachedRecords] = await Promise.all([
+    const [cachedRoutines, cachedDateSessions, cachedWeekSessions, cachedAllSessions, cachedRecords] = await Promise.all([
       getCached<Routine[]>(cacheKeys.routines(user.id)),
       getCached<any[]>(sessionCacheKey),
+      getCached<any[]>(weekSessionCacheKey),
       getCached<any[]>(cacheKeys.sessions(user.id)),
       getCached<PersonalRecord[]>(`personal-records:${user.id}`)
     ]);
-    const fallbackSessions = cachedDateSessions ?? (cachedAllSessions ?? []).filter((session) => session.session_date === selectedDate);
+    const fallbackWeekSessions = cachedWeekSessions ?? (cachedAllSessions ?? []).filter((session) => session.session_date >= weekRange.start && session.session_date <= weekRange.end);
+    const fallbackSessions = cachedDateSessions ?? fallbackWeekSessions.filter((session) => session.session_date === selectedDate);
     if (cachedRoutines) setRoutines(cachedRoutines);
     setSessions(fallbackSessions);
+    setWeekSessions(fallbackWeekSessions);
     if (cachedRecords) setRecords(cachedRecords);
     setLoading(false);
 
@@ -68,7 +93,7 @@ export function WorkoutsPageV2() {
 
     const [routineResult, sessionResult, recordResult] = await Promise.all([
       supabase.from('routine_templates').select(`id,name,day_order,routine_exercises(id,position,target_sets,rep_min,rep_max,rir_target,exercise:exercise_library(id,name,primary_muscle,equipment))`).eq('user_id', user.id).order('day_order'),
-      supabase.from('workout_sessions').select('id,routine_id,session_date,finished_at,started_at').eq('user_id', user.id).eq('session_date', selectedDate).order('started_at', { ascending: false }),
+      supabase.from('workout_sessions').select('id,routine_id,session_date,finished_at,started_at').eq('user_id', user.id).gte('session_date', weekRange.start).lte('session_date', weekRange.end).order('started_at', { ascending: false }),
       supabase.from('workout_sessions').select(`session_date,workout_exercises(exercise:exercise_library(id,name),workout_sets(weight_kg,reps,completed))`).eq('user_id', user.id).not('finished_at', 'is', null).order('session_date', { ascending: false }).limit(100)
     ]);
 
@@ -78,14 +103,17 @@ export function WorkoutsPageV2() {
     }
 
     const sorted = ((routineResult.data ?? []) as unknown as Routine[]).map((routine) => ({ ...routine, routine_exercises: [...(routine.routine_exercises ?? [])].sort((a, b) => a.position - b.position) }));
-    const nextSessions = sessionResult.data ?? [];
+    const nextWeekSessions = sessionResult.data ?? [];
+    const nextSessions = nextWeekSessions.filter((session) => session.session_date === selectedDate);
     const nextRecords = calculatePersonalRecords(recordResult.data ?? []);
     setRoutines(sorted);
     setSessions(nextSessions);
+    setWeekSessions(nextWeekSessions);
     setRecords(nextRecords);
     await Promise.all([
       setCached(cacheKeys.routines(user.id), sorted),
       setCached(sessionCacheKey, nextSessions),
+      setCached(weekSessionCacheKey, nextWeekSessions),
       setCached(`personal-records:${user.id}`, nextRecords)
     ]);
   };
@@ -94,6 +122,7 @@ export function WorkoutsPageV2() {
 
   const startRoutine = async (routine: Routine) => {
     if (!user || !profile) return;
+    if (weekSessions.some((session) => session.routine_id === routine.id && session.finished_at)) return;
     setStarting(routine.id);
     setError('');
     const sessionId = crypto.randomUUID();
@@ -108,10 +137,12 @@ export function WorkoutsPageV2() {
     const localSession = { id: sessionId, user_id: user.id, routine_id: routine.id, session_date: sessionDate, started_at: startedAt, finished_at: null, notes: null, routine: { name: routine.name }, workout_exercises: workoutExercises };
     const summary = { id: sessionId, routine_id: routine.id, session_date: sessionDate, started_at: startedAt, finished_at: null };
     const nextDateSessions = [summary, ...sessions.filter((session) => session.id !== sessionId)];
+    const nextWeekSessions = [summary, ...weekSessions.filter((session) => session.id !== sessionId)];
     await Promise.all([
       setCached(cacheKeys.workoutSession(sessionId), localSession),
       cacheSessionSummary(user.id, summary),
-      persistSelectedDateSessions(nextDateSessions)
+      persistSelectedDateSessions(nextDateSessions),
+      persistWeekSessions(nextWeekSessions)
     ]);
     await queueMutation({ operation: 'upsert', table: 'workout_sessions', dedupeKey: `session:${sessionId}`, payload: { id: sessionId, user_id: user.id, routine_id: routine.id, session_date: sessionDate, started_at: startedAt, finished_at: null, notes: null } });
     await queueMutation({ operation: 'upsert', table: 'workout_exercises', dedupeKey: `session-exercises:${sessionId}`, payload: workoutExercises.map((item) => ({ id: item.id, session_id: sessionId, planned_routine_exercise_id: item.planned_routine_exercise_id, exercise_id: item.exercise_id, position: item.position })) });
@@ -124,9 +155,11 @@ export function WorkoutsPageV2() {
   const unmarkRoutine = async (session: any) => {
     if (!user || !session?.id) return;
     setUpdatingSession(session.id);
-    const next = sessions.map((item) => item.id === session.id ? { ...item, finished_at: null } : item);
+    const nextDateSessions = sessions.map((item) => item.id === session.id ? { ...item, finished_at: null } : item);
+    const nextWeekSessions = weekSessions.map((item) => item.id === session.id ? { ...item, finished_at: null } : item);
     await Promise.all([
-      persistSelectedDateSessions(next),
+      persistSelectedDateSessions(nextDateSessions),
+      persistWeekSessions(nextWeekSessions),
       cacheSessionSummary(user.id, { ...session, finished_at: null })
     ]);
     await saveMutation({ operation: 'update', table: 'workout_sessions', payload: { finished_at: null, updated_at: new Date().toISOString() }, match: { id: session.id }, dedupeKey: `unfinish-session:${session.id}` });
@@ -155,15 +188,19 @@ export function WorkoutsPageV2() {
 
     <section className="routine-grid">{routines.map((routine, index) => {
       const assignedSession = sessions.find((session) => session.routine_id === routine.id);
+      const completedThisWeek = weekSessions.find((session) => session.routine_id === routine.id && session.finished_at);
       const isFinished = Boolean(assignedSession?.finished_at);
       const isInProgress = Boolean(assignedSession && !assignedSession.finished_at);
-      return <article className="routine-card" key={routine.id}>
-        <div className="routine-card-top"><div className="metric-icon"><Dumbbell /></div><div><span>Día {index + 1}</span><h2>{routine.name}</h2></div>{isFinished ? <span className="status-chip green"><CheckCircle2 size={14} /> Hecha</span> : isInProgress ? <span className="status-chip orange">En curso</span> : <span className="status-chip">Disponible</span>}</div>
+      const lockedByAnotherDay = Boolean(completedThisWeek && completedThisWeek.id !== assignedSession?.id);
+      const isWeeklyLocked = isFinished || lockedByAnotherDay;
+      const cardClassName = isWeeklyLocked ? 'routine-card weekly-locked' : 'routine-card';
+      return <article className={cardClassName} key={routine.id}>
+        <div className="routine-card-top"><div className="metric-icon"><Dumbbell /></div><div><span>Día {index + 1}</span><h2>{routine.name}</h2></div>{isFinished ? <span className="status-chip green"><CheckCircle2 size={14} /> Hecha</span> : lockedByAnotherDay ? <span className="status-chip weekly-lock"><LockKeyhole size={14} /> Hecha esta semana</span> : isInProgress ? <span className="status-chip orange">En curso</span> : <span className="status-chip">Disponible</span>}</div>
         <ol>{routine.routine_exercises.map((item) => <li key={item.id}><span>{item.exercise.name}</span><small>{item.target_sets} × {item.rep_min}–{item.rep_max} · RIR {item.rir_target}</small></li>)}</ol>
         {!routine.routine_exercises.length && <div className="alert error">Agrega al menos un ejercicio desde “Editar programa”.</div>}
-        {assignedSession && <p className="last-session"><CalendarDays size={15} /> Asignada a: {assignedSession.session_date}</p>}
+        {assignedSession ? <p className="last-session"><CalendarDays size={15} /> Asignada a: {assignedSession.session_date}</p> : completedThisWeek ? <p className="last-session"><LockKeyhole size={15} /> Completada esta semana: {completedThisWeek.session_date}</p> : null}
         <div className="routine-action-row">
-          <button className="primary-button" onClick={() => isInProgress ? navigate(`/sesion/${assignedSession.id}`) : startRoutine(routine)} disabled={starting === routine.id || !routine.routine_exercises.length || isFinished}><Play size={17} /> {starting === routine.id ? 'Preparando…' : isInProgress ? 'Continuar rutina' : isFinished ? 'Rutina completada' : 'Iniciar rutina'} <ChevronRight size={17} /></button>
+          <button className="primary-button" onClick={() => isInProgress ? navigate(`/sesion/${assignedSession.id}`) : startRoutine(routine)} disabled={starting === routine.id || !routine.routine_exercises.length || isWeeklyLocked}><Play size={17} /> {starting === routine.id ? 'Preparando…' : isInProgress ? 'Continuar rutina' : isFinished ? 'Rutina completada' : lockedByAnotherDay ? 'Hecha esta semana' : 'Iniciar rutina'} <ChevronRight size={17} /></button>
           {isFinished && <button className="secondary-button routine-unmark" onClick={() => unmarkRoutine(assignedSession)} disabled={updatingSession === assignedSession.id}><RotateCcw size={16} /> {updatingSession === assignedSession.id ? 'Desmarcando…' : 'Desmarcar rutina'}</button>}
         </div>
       </article>;
