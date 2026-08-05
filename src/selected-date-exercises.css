@@ -1,3 +1,60 @@
+.date-heading-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, max-content);
+  align-items: start;
+}
+.date-heading-wrap > .eyebrow { grid-column: 1; grid-row: 1; }
+.date-heading-button,
+.native-date-picker {
+  grid-column: 1;
+  grid-row: 2;
+}
+.date-heading-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  width: max-content;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+.date-heading-button h1 { pointer-events: none; }
+.date-heading-button svg { flex: 0 0 auto; color: var(--green); pointer-events: none; }
+.native-date-picker {
+  position: relative;
+  z-index: 3;
+  align-self: stretch;
+  justify-self: stretch;
+  width: 100%;
+  min-width: 0;
+  min-height: 54px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  opacity: .001;
+  background: transparent;
+  color: transparent;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.native-date-picker::-webkit-calendar-picker-indicator {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.date-heading-wrap > .muted { grid-column: 1 / -1; grid-row: 3; }
+.history-today-button { grid-column: 1; grid-row: 4; justify-self: start; }
+
 .global-date-chip {
   margin-left: auto;
   display: inline-flex;
@@ -71,4 +128,5 @@
   .global-date-chip { order: 3; width: 100%; max-width: none; justify-content: center; margin-left: 0; }
   .custom-exercise-grid { grid-template-columns: 1fr; }
   .custom-exercise-grid label:last-child { grid-column: auto; }
+  .native-date-picker { min-height: 48px; }
 }
