@@ -5,17 +5,20 @@
 .alert.success { display: flex; gap: 8px; align-items: center; }
 .status-chip.orange { color: #ffc477; border-color: rgba(255,173,66,.35); background: rgba(255,173,66,.08); }
 
-/* Timer de descanso */
-.rest-timer { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 18px; align-items: center; position: sticky; top: 82px; z-index: 12; backdrop-filter: blur(18px); }
+/* Timer de descanso fijo y compacto */
+.rest-timer { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; align-items: center; position: sticky; top: 76px; z-index: 12; padding: 14px 16px; backdrop-filter: blur(18px); }
 .rest-timer.running { border-color: rgba(112,228,72,.5); box-shadow: 0 0 28px rgba(112,228,72,.08); }
 .rest-timer.finished { border-color: rgba(255,173,66,.58); box-shadow: 0 0 30px rgba(255,173,66,.1); }
-.rest-timer-copy { display: flex; align-items: center; gap: 13px; min-width: 0; }
-.rest-timer-copy h2 { margin: 2px 0 3px; }
-.rest-timer-clock { min-width: 112px; text-align: center; border: 1px solid #34453b; background: #09100c; border-radius: 17px; padding: 10px 14px; }
-.rest-timer-clock strong { display: block; font-variant-numeric: tabular-nums; font-size: 30px; letter-spacing: 1px; color: var(--green); }
+.rest-timer-copy { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.rest-timer-copy .metric-icon { width: 36px; height: 36px; border-radius: 11px; }
+.rest-timer-copy h2 { margin: 1px 0 0; font-size: 18px; line-height: 1.05; }
+.rest-timer-copy .muted { display: none; }
+.rest-timer-clock { min-width: 96px; text-align: center; border: 1px solid #34453b; background: #09100c; border-radius: 14px; padding: 7px 10px; }
+.rest-timer-clock strong { display: block; font-variant-numeric: tabular-nums; font-size: 27px; line-height: 1; letter-spacing: 1px; color: var(--green); }
 .rest-timer.finished .rest-timer-clock strong { color: var(--orange); }
-.rest-timer-clock span { display: block; color: var(--muted); text-transform: uppercase; font-size: 9px; letter-spacing: 1.2px; }
-.rest-timer-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.rest-timer-clock span { display: block; margin-top: 3px; color: var(--muted); text-transform: uppercase; font-size: 8px; letter-spacing: 1.1px; }
+.rest-timer-actions { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.rest-timer-actions .compact { min-height: 36px; }
 .timer-bell { color: var(--orange); animation: timer-ring .7s ease-in-out infinite alternate; }
 .notification-permission-button { color: #dfffd4; border-color: rgba(112,228,72,.32); }
 .timer-notification-state { min-height: 34px; padding: 7px 10px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid #34453b; border-radius: 11px; font-size: 11px; white-space: nowrap; }
@@ -39,14 +42,23 @@
 .exercise-toggle.active { color: var(--orange); border-color: rgba(255,173,66,.38); }
 .exercise-panel.exercise-completed { border-color: rgba(112,228,72,.42); }
 
+/* Rutinas ya completadas durante la semana seleccionada */
+.routine-card.weekly-locked { opacity: .48; filter: grayscale(.38) saturate(.45); border-color: rgba(132,145,136,.28); box-shadow: none; }
+.routine-card.weekly-locked .metric-icon { color: #8d9991; background: rgba(141,153,145,.08); border-color: rgba(141,153,145,.2); }
+.routine-card.weekly-locked ol { opacity: .7; }
+.routine-card.weekly-locked .primary-button:disabled { background: #18201b; color: #78847c; border-color: #2c3831; box-shadow: none; opacity: 1; }
+.status-chip.weekly-lock { color: #b4beb7; border-color: rgba(180,190,183,.3); background: rgba(180,190,183,.06); }
+
 @media (max-width: 760px) {
-  .rest-timer { grid-template-columns: 1fr auto; top: 70px; gap: 12px; }
-  .rest-timer-copy { grid-column: 1 / -1; }
-  .rest-timer-copy .muted { display: none; }
-  .rest-timer-clock { min-width: 105px; }
-  .rest-timer-actions { justify-content: stretch; }
-  .rest-timer-actions button { flex: 1; }
-  .timer-notification-state { flex: 1 1 100%; justify-content: center; }
+  .rest-timer { grid-template-columns: minmax(0, 1fr) auto; top: 68px; gap: 9px; padding: 12px 13px; }
+  .rest-timer-copy { grid-column: auto; }
+  .rest-timer-copy .metric-icon { display: none; }
+  .rest-timer-copy h2 { font-size: 16px; }
+  .rest-timer-clock { min-width: 92px; padding: 7px 8px; }
+  .rest-timer-clock strong { font-size: 25px; }
+  .rest-timer-actions { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; justify-content: stretch; }
+  .rest-timer-actions button { width: 100%; }
+  .timer-notification-state { grid-column: 1 / -1; width: 100%; justify-content: center; }
   .exercise-actions { width: 100%; justify-content: stretch; margin-left: 51px; }
   .exercise-actions button { flex: 1; }
   .exercise-title .exercise-actions .secondary-button { margin-left: 0; }
