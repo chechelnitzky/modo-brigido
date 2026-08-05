@@ -106,9 +106,15 @@ export async function schedulePushForTimer({ endAt, sessionId, routineName }: Ti
   if (error || !data?.id) return;
   localStorage.setItem(CURRENT_JOB_KEY, data.id);
 
-  // Esta función queda esperando en Supabase y envía el primer push justo al vencer.
-  // El cron de 10 segundos permanece únicamente como respaldo si la tarea directa falla.
+  // La función directa queda esperando en Supabase y dispara el primer push al vencimiento.
+  // El cron de 10 segundos permanece únicamente como respaldo.
   await supabase.functions.invoke('schedule-timer-push', { body: { jobId: data.id } });
+}
+
+export async function schedulePushForActiveTimer(routineName?: string): Promise<void> {
+  const timer = findRunningTimer();
+  if (!timer) return;
+  await schedulePushForTimer({ ...timer, routineName });
 }
 
 export async function reconcileTimerPushJob(): Promise<void> {
