@@ -2,10 +2,12 @@ import { Activity, Info, Scale } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { DailyLog, Profile } from '../types';
 import { estimateBodyCompositionForLog, missingBodyFatFields } from '../lib/bodyFat';
-import { formatBodyFatRange, getBodyFatScale, getBodyFatScaleRange } from '../lib/bodyFatScale';
+import { getBodyFatScale, getBodyFatScaleRange } from '../lib/bodyFatScale';
 
 const COMPACT_RANGE_LABELS: Record<string, string> = {
   Esencial: 'Esenc.',
+  Atleta: 'Atl.',
+  Fitness: 'Fit.',
   Promedio: 'Prom.',
   Obesidad: 'Obes.'
 };
@@ -82,24 +84,16 @@ export function BodyCompositionCard({
                 </div>
 
                 <div className="bodyfat-scale-labels">
-                  {scale.ranges.slice(1).map((range, index) => {
-                    const center = ((range.min + range.max) / 2) / scale.max * 100;
-                    const isLast = index === scale.ranges.length - 2;
-                    return (
-                      <span
-                        key={`${range.label}-${range.min}`}
-                        className={range === activeRange ? 'bodyfat-scale-label active' : 'bodyfat-scale-label'}
-                        style={{ left: `${center}%` }}
-                        title={range.description}
-                      >
-                        <strong>
-                          <b className="range-label-full">{range.label}</b>
-                          <b className="range-label-compact">{COMPACT_RANGE_LABELS[range.label] ?? range.label}</b>
-                        </strong>
-                        <small>{formatBodyFatRange(range, isLast)}</small>
-                      </span>
-                    );
-                  })}
+                  {scale.ranges.slice(1).map((range) => (
+                    <span
+                      key={`${range.label}-${range.min}`}
+                      className={range === activeRange ? 'bodyfat-scale-label active' : 'bodyfat-scale-label'}
+                      title={range.description}
+                    >
+                      <b className="range-label-full">{range.label}</b>
+                      <b className="range-label-compact">{COMPACT_RANGE_LABELS[range.label] ?? range.label}</b>
+                    </span>
+                  ))}
                 </div>
               </div>
             </div>
