@@ -5,7 +5,7 @@ import { formatKm, getStepConversion, kmToSteps, stepsToKm } from '../lib/steps'
 type StepDistanceInputProps = {
   steps: number | null;
   heightCm: number | null;
-  calibratedStepsPerKm: number | null;
+  calibratedStepsPerKm?: number | null;
   onStepsChange: (steps: number | null) => void;
 };
 
