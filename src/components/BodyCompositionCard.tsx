@@ -84,16 +84,27 @@ export function BodyCompositionCard({
                 </div>
 
                 <div className="bodyfat-scale-labels">
-                  {scale.ranges.slice(1).map((range) => (
-                    <span
-                      key={`${range.label}-${range.min}`}
-                      className={range === activeRange ? 'bodyfat-scale-label active' : 'bodyfat-scale-label'}
-                      title={range.description}
-                    >
-                      <b className="range-label-full">{range.label}</b>
-                      <b className="range-label-compact">{COMPACT_RANGE_LABELS[range.label] ?? range.label}</b>
-                    </span>
-                  ))}
+                  {scale.ranges.slice(1).map((range) => {
+                    const left = range.min / scale.max * 100;
+                    const width = (range.max - range.min) / scale.max * 100;
+                    const classes = [
+                      'bodyfat-scale-label',
+                      range === activeRange ? 'active' : '',
+                      width <= 10.5 ? 'narrow' : ''
+                    ].filter(Boolean).join(' ');
+
+                    return (
+                      <span
+                        key={`${range.label}-${range.min}`}
+                        className={classes}
+                        style={{ left: `${left}%`, width: `${width}%` }}
+                        title={range.description}
+                      >
+                        <b className="range-label-full">{range.label}</b>
+                        <b className="range-label-compact">{COMPACT_RANGE_LABELS[range.label] ?? range.label}</b>
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
             </div>
