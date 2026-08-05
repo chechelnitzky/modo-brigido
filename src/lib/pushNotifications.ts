@@ -10,6 +10,19 @@ type TimerPushSchedule = {
   routineName?: string;
 };
 
+function supportsNotifications(): boolean {
+  return typeof window !== 'undefined' && 'Notification' in window && typeof window.Notification !== 'undefined';
+}
+
+function canUsePush(): boolean {
+  return typeof window !== 'undefined'
+    && typeof navigator !== 'undefined'
+    && 'serviceWorker' in navigator
+    && 'PushManager' in window
+    && supportsNotifications()
+    && window.Notification.permission === 'granted';
+}
+
 function urlBase64ToArrayBuffer(base64String: string): ArrayBuffer {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -19,29 +32,33 @@ function urlBase64ToArrayBuffer(base64String: string): ArrayBuffer {
 }
 
 export async function ensurePushSubscription(): Promise<boolean> {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window) || Notification.permission !== 'granted') return false;
-  const supabase = getSupabase();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return false;
-  const registration = await navigator.serviceWorker.ready;
-  let subscription = await registration.pushManager.getSubscription();
-  if (!subscription) {
-    subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToArrayBuffer(VAPID_PUBLIC_KEY)
-    });
+  if (!canUsePush()) return false;
+  try {
+    const supabase = getSupabase();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return false;
+    const registration = await navigator.serviceWorker.ready;
+    let subscription = await registration.pushManager.getSubscription();
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToArrayBuffer(VAPID_PUBLIC_KEY)
+      });
+    }
+    const serialized = subscription.toJSON();
+    if (!serialized.endpoint || !serialized.keys?.p256dh || !serialized.keys?.auth) return false;
+    const { error } = await supabase.from('push_subscriptions').upsert({
+      user_id: user.id,
+      endpoint: serialized.endpoint,
+      p256dh: serialized.keys.p256dh,
+      auth: serialized.keys.auth,
+      user_agent: navigator.userAgent,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'endpoint' });
+    return !error;
+  } catch {
+    return false;
   }
-  const serialized = subscription.toJSON();
-  if (!serialized.endpoint || !serialized.keys?.p256dh || !serialized.keys?.auth) return false;
-  const { error } = await supabase.from('push_subscriptions').upsert({
-    user_id: user.id,
-    endpoint: serialized.endpoint,
-    p256dh: serialized.keys.p256dh,
-    auth: serialized.keys.auth,
-    user_agent: navigator.userAgent,
-    updated_at: new Date().toISOString()
-  }, { onConflict: 'endpoint' });
-  return !error;
 }
 
 function findRunningTimer(): { endAt: number; sessionId?: string } | null {
@@ -74,7 +91,7 @@ async function cancelActiveJobsForUser(userId: string): Promise<void> {
 
 export async function cancelCurrentTimerPush(): Promise<void> {
   localStorage.removeItem(CURRENT_JOB_KEY);
-  if (!navigator.onLine) return;
+  if (typeof navigator === 'undefined' || !navigator.onLine) return;
   const supabase = getSupabase();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return;
@@ -82,7 +99,7 @@ export async function cancelCurrentTimerPush(): Promise<void> {
 }
 
 export async function schedulePushForTimer({ endAt, sessionId, routineName }: TimerPushSchedule): Promise<void> {
-  if (!navigator.onLine || Notification.permission !== 'granted' || endAt <= Date.now()) return;
+  if (typeof navigator === 'undefined' || !navigator.onLine || !canUsePush() || endAt <= Date.now()) return;
   const subscribed = await ensurePushSubscription();
   if (!subscribed) return;
 
@@ -118,7 +135,7 @@ export async function schedulePushForActiveTimer(routineName?: string): Promise<
 }
 
 export async function reconcileTimerPushJob(): Promise<void> {
-  if (!navigator.onLine) return;
+  if (typeof navigator === 'undefined' || !navigator.onLine) return;
   const jobId = localStorage.getItem(CURRENT_JOB_KEY);
   if (!jobId || findRunningTimer()) return;
   const supabase = getSupabase();
@@ -130,7 +147,7 @@ export async function reconcileTimerPushJob(): Promise<void> {
 }
 
 export async function acknowledgeDueTimerPushes(): Promise<void> {
-  if (!navigator.onLine) return;
+  if (typeof navigator === 'undefined' || !navigator.onLine) return;
   const supabase = getSupabase();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return;
