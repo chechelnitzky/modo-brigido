@@ -7,7 +7,10 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // Evita reemplazos y recargas automáticas mientras la PWA está abierta.
+      // main.tsx activa la actualización sin recargar y la versión nueva se usa
+      // de forma limpia en la próxima apertura.
+      registerType: 'prompt',
       includeAssets: ['icon-192.png', 'icon-512.png', 'app-config.js', 'notification-sw.js'],
       manifest: {
         name: 'Modo Brígido',
@@ -24,6 +27,7 @@ export default defineConfig({
       },
       workbox: {
         importScripts: ['notification-sw.js'],
+        cleanupOutdatedCaches: true,
         navigateFallbackDenylist: [/^\/auth/]
       }
     })
