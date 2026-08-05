@@ -29,10 +29,28 @@ function startOptionalFeature(name: string, start: () => unknown): void {
   }
 }
 
+function registerProgressiveWebApp(): void {
+  let applyUpdate: ((reloadPage?: boolean) => Promise<void>) | undefined;
+
+  applyUpdate = registerSW({
+    immediate: true,
+    onNeedRefresh() {
+      // Evita que una PWA instalada en iPhone permanezca con CSS/JS antiguos.
+      void applyUpdate?.(true);
+    },
+    onRegisteredSW(_serviceWorkerUrl, registration) {
+      // Revisa la versión publicada cada vez que se abre la aplicación.
+      void registration?.update().catch((error) => {
+        console.warn('[Modo Brígido] No se pudo revisar la actualización de la PWA.', error);
+      });
+    }
+  });
+}
+
 // Se inicia después del primer render para que una incompatibilidad del navegador
 // nunca vuelva a dejar toda la aplicación en blanco.
 window.setTimeout(() => {
-  startOptionalFeature('PWA', () => registerSW({ immediate: true }));
+  startOptionalFeature('PWA', () => registerProgressiveWebApp());
   startOptionalFeature('sincronización offline', () => startOfflineSync());
   startOptionalFeature('notificaciones del temporizador', () => startTimerNotificationLifecycle());
 }, 0);
