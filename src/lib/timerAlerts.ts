@@ -77,12 +77,20 @@ export async function cancelScheduledTimerAlert(): Promise<void> {
 }
 
 export async function requestTimerNotificationPermission(): Promise<TimerNotificationPermission> {
-  const context = getAudioContext();
-  if (context?.state === 'suspended') await context.resume();
   if (!supportsNotifications()) return 'unsupported';
-  const permission = window.Notification.permission === 'default'
-    ? await window.Notification.requestPermission()
-    : window.Notification.permission;
+
+  // En iOS, requestPermission debe ejecutarse directamente dentro del toque del usuario.
+  // Iniciamos también el audio en el mismo gesto, pero no esperamos antes de pedir permiso.
+  const context = getAudioContext();
+  const audioResume = context?.state === 'suspended'
+    ? context.resume().catch(() => undefined)
+    : Promise.resolve();
+  const permissionRequest = window.Notification.permission === 'default'
+    ? window.Notification.requestPermission()
+    : Promise.resolve(window.Notification.permission);
+
+  const permission = await permissionRequest;
+  await audioResume;
   if (permission === 'granted') await ensurePushSubscription();
   return permission;
 }
