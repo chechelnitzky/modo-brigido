@@ -105,30 +105,33 @@
 }
 
 .bodyfat-scale-labels {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  align-items: start;
-  gap: 2px;
-  margin-top: 18px;
+  position: relative;
+  height: 15px;
+  margin-top: 17px;
   min-width: 0;
 }
 
 .bodyfat-scale-label {
-  display: block;
+  position: absolute;
+  top: 0;
+  box-sizing: border-box;
   min-width: 0;
   overflow: hidden;
+  padding-left: 1px;
   color: #dfe7e2;
   font-size: clamp(8px, 1.7vw, 10px);
   font-weight: 800;
   line-height: 1.1;
-  text-align: center;
+  text-align: left;
   white-space: nowrap;
-  text-overflow: clip;
 }
 
 .bodyfat-scale-label b {
   display: block;
+  overflow: hidden;
   font: inherit;
+  text-overflow: clip;
+  white-space: nowrap;
 }
 
 .bodyfat-scale-label.active {
@@ -178,29 +181,30 @@
   }
 
   .bodyfat-scale-labels {
-    gap: 1px;
-    margin-top: 16px;
+    margin-top: 15px;
   }
 
   .bodyfat-scale-label {
     font-size: 9px;
   }
-
-  .range-label-full {
-    display: none !important;
-  }
-
-  .range-label-compact {
-    display: block !important;
-  }
 }
 
-@media (max-width: 380px) {
+@media (max-width: 420px) {
   .bodyfat-reference {
     padding-right: 9px;
     padding-left: 9px;
   }
 
+  .bodyfat-scale-label.narrow .range-label-full {
+    display: none !important;
+  }
+
+  .bodyfat-scale-label.narrow .range-label-compact {
+    display: block !important;
+  }
+}
+
+@media (max-width: 340px) {
   .bodyfat-scale-label {
     font-size: 8px;
     letter-spacing: -.02em;
