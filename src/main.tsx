@@ -17,6 +17,7 @@ if (!rootElement) {
 
 // La interfaz debe aparecer aunque Safari/iOS no soporte alguna API opcional.
 createRoot(rootElement).render(<StrictMode><App /></StrictMode>);
+(window as Window & { __MODO_BRIGIDO_BOOTED__?: boolean }).__MODO_BRIGIDO_BOOTED__ = true;
 
 function startOptionalFeature(name: string, start: () => unknown): void {
   try {
@@ -35,11 +36,16 @@ function registerProgressiveWebApp(): void {
   applyUpdate = registerSW({
     immediate: true,
     onNeedRefresh() {
-      // Evita que una PWA instalada en iPhone permanezca con CSS/JS antiguos.
-      void applyUpdate?.(true);
+      // Activa la versión nueva sin recargar la página actual. En iPhone, forzar
+      // una recarga aquí puede mezclar el HTML antiguo con archivos JS/CSS nuevos.
+      // La versión activada se usa de forma limpia en la próxima apertura.
+      void applyUpdate?.(false).catch((error) => {
+        console.warn('[Modo Brígido] No se pudo activar la actualización de la PWA.', error);
+      });
     },
     onRegisteredSW(_serviceWorkerUrl, registration) {
-      // Revisa la versión publicada cada vez que se abre la aplicación.
+      // Revisa la versión publicada cada vez que se abre la aplicación, pero no
+      // fuerza una recarga mientras el usuario está dentro.
       void registration?.update().catch((error) => {
         console.warn('[Modo Brígido] No se pudo revisar la actualización de la PWA.', error);
       });
