@@ -3,11 +3,12 @@ import { getSupabase } from './supabase';
 const CURRENT_JOB_KEY = 'modo-brigido-current-push-job';
 const VAPID_PUBLIC_KEY = 'BHd7QItp7kI1of4vXLlexXtPU2GMKI5uhPnnjWClsOgVBA3utDHRtK42x8CQy6nYlHQEKZFDOcxqrx5MIFEcHr0';
 
-function urlBase64ToUint8Array(base64String: string) {
+function urlBase64ToArrayBuffer(base64String: string): ArrayBuffer {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
   const rawData = window.atob(base64);
-  return Uint8Array.from([...rawData].map((character) => character.charCodeAt(0)));
+  const bytes = Uint8Array.from([...rawData].map((character) => character.charCodeAt(0)));
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
 export async function ensurePushSubscription(): Promise<boolean> {
@@ -20,7 +21,7 @@ export async function ensurePushSubscription(): Promise<boolean> {
   if (!subscription) {
     subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+      applicationServerKey: urlBase64ToArrayBuffer(VAPID_PUBLIC_KEY)
     });
   }
   const serialized = subscription.toJSON();
