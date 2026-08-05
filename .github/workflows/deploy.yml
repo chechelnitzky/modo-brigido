@@ -12,7 +12,7 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -31,7 +31,15 @@ jobs:
         run: npm install --no-audit --no-fund
 
       - name: Build application
-        run: npm run build
+        run: |
+          rm -rf dist
+          npm run build
+
+      - name: Verify current body fat interface
+        run: |
+          grep -R "Esen\." dist/assets
+          grep -R "bodyfat-scale-marker-value" dist/assets
+          printf '%s\n' "$GITHUB_SHA" > dist/version.txt
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
