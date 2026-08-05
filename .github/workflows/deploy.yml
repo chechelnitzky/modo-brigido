@@ -30,15 +30,21 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Typecheck
+        run: npm run typecheck
+
       - name: Build application
         run: |
           rm -rf dist
           npm run build
 
-      - name: Verify current body fat interface
+      - name: Verify current interfaces
         run: |
           grep -R "Esen\." dist/assets
           grep -R "bodyfat-scale-marker-value" dist/assets
+          grep -R "Caminata diaria" dist/assets
+          grep -R "steps_per_km" dist/assets
+          grep -R "step-distance-field" dist/assets
           printf '%s\n' "$GITHUB_SHA" > dist/version.txt
 
       - name: Setup Pages
