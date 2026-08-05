@@ -65,6 +65,11 @@ jobs:
         with:
           path: dist
 
+      - name: Report build success
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh issue create --title "Pages diagnostic BUILD success: ${GITHUB_SHA:0:7}" --body "Build, configuración de Pages y carga del artefacto completados para $GITHUB_SHA."
+
   deploy:
     environment:
       name: github-pages
@@ -76,4 +81,15 @@ jobs:
     steps:
       - name: Deploy
         id: deployment
+        continue-on-error: true
         uses: actions/deploy-pages@v4
+
+      - name: Report deployment result
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_OUTCOME: ${{ steps.deployment.outcome }}
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          gh issue create --title "Pages diagnostic DEPLOY ${DEPLOY_OUTCOME}: ${GITHUB_SHA:0:7}" --body "Resultado del despliegue: ${DEPLOY_OUTCOME}. URL informada: ${PAGE_URL:-sin URL}. Commit: $GITHUB_SHA."
+          test "$DEPLOY_OUTCOME" = "success"
