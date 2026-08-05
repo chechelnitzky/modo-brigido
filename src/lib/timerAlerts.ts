@@ -17,6 +17,10 @@ const AGGRESSIVE_VIBRATION = [450, 110, 450, 110, 850, 160, 450, 110, 450, 110, 
 export type TimerNotificationPermission = NotificationPermission | 'unsupported';
 export type TimerAlertSchedule = { endAt: number; sessionId?: string; routineName?: string };
 
+function supportsNotifications(): boolean {
+  return typeof window !== 'undefined' && 'Notification' in window && typeof window.Notification !== 'undefined';
+}
+
 function getAudioContext(): AudioContext | null {
   if (typeof window === 'undefined') return null;
   const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -50,8 +54,8 @@ function playAlarmSequence() {
 }
 
 export function getTimerNotificationPermission(): TimerNotificationPermission {
-  if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported';
-  return Notification.permission;
+  if (!supportsNotifications()) return 'unsupported';
+  return window.Notification.permission;
 }
 
 export async function prepareTimerAlerts(schedule?: TimerAlertSchedule): Promise<void> {
@@ -75,14 +79,16 @@ export async function cancelScheduledTimerAlert(): Promise<void> {
 export async function requestTimerNotificationPermission(): Promise<TimerNotificationPermission> {
   const context = getAudioContext();
   if (context?.state === 'suspended') await context.resume();
-  if (!('Notification' in window)) return 'unsupported';
-  const permission = Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission;
+  if (!supportsNotifications()) return 'unsupported';
+  const permission = window.Notification.permission === 'default'
+    ? await window.Notification.requestPermission()
+    : window.Notification.permission;
   if (permission === 'granted') await ensurePushSubscription();
   return permission;
 }
 
 export async function clearTimerNotifications(): Promise<void> {
-  if (!('serviceWorker' in navigator)) return;
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
   try {
     const registration = await navigator.serviceWorker.ready;
     const notifications = await registration.getNotifications();
@@ -91,13 +97,13 @@ export async function clearTimerNotifications(): Promise<void> {
 }
 
 export function stopPersistentTimerAlarm(): void {
-  if ('vibrate' in navigator) navigator.vibrate(0);
+  if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(0);
   void clearTimerNotifications();
   void acknowledgeDueTimerPushes();
 }
 
 export function startTimerNotificationLifecycle(): void {
-  if (lifecycleStarted || typeof window === 'undefined') return;
+  if (lifecycleStarted || typeof window === 'undefined' || typeof document === 'undefined') return;
   lifecycleStarted = true;
   const onVisible = () => {
     if (document.visibilityState === 'visible') {
@@ -109,7 +115,7 @@ export function startTimerNotificationLifecycle(): void {
   window.addEventListener('focus', onVisible);
   window.addEventListener('online', () => { void ensurePushSubscription(); void reconcileTimerPushJob(); });
   reconcileInterval = window.setInterval(() => { void reconcileTimerPushJob(); }, 2500);
-  if (Notification.permission === 'granted') void ensurePushSubscription();
+  if (supportsNotifications() && window.Notification.permission === 'granted') void ensurePushSubscription();
   onVisible();
 }
 
