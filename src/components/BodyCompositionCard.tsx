@@ -26,7 +26,7 @@ export function BodyCompositionCard({
     ? getBodyFatScaleRange(profile.sex, estimate.bodyFatPercentage)
     : null;
   const markerPosition = scale && estimate
-    ? Math.max(0, Math.min(100, estimate.bodyFatPercentage / scale.max * 100))
+    ? Math.max(4, Math.min(96, estimate.bodyFatPercentage / scale.max * 100))
     : 0;
 
   return (
