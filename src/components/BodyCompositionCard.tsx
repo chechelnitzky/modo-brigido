@@ -2,6 +2,7 @@ import { Activity, Info, Scale } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { DailyLog, Profile } from '../types';
 import { estimateBodyCompositionForLog, missingBodyFatFields } from '../lib/bodyFat';
+import { formatBodyFatRange, getBodyFatScale, getBodyFatScaleRange } from '../lib/bodyFatScale';
 
 export function BodyCompositionCard({
   profile,
@@ -14,6 +15,13 @@ export function BodyCompositionCard({
 }) {
   const estimate = estimateBodyCompositionForLog(profile, log);
   const missing = missingBodyFatFields(profile, log);
+  const scale = profile.sex ? getBodyFatScale(profile.sex) : null;
+  const activeRange = profile.sex && estimate
+    ? getBodyFatScaleRange(profile.sex, estimate.bodyFatPercentage)
+    : null;
+  const markerPosition = scale && estimate
+    ? Math.max(0, Math.min(100, estimate.bodyFatPercentage / scale.max * 100))
+    : 0;
 
   return (
     <section className="panel bodyfat-panel">
@@ -21,7 +29,7 @@ export function BodyCompositionCard({
         <div><p className="eyebrow">MÉTODO U.S. NAVY</p><h2>{title}</h2></div>
         <Activity />
       </div>
-      {!estimate ? (
+      {!estimate || !scale || !activeRange ? (
         <div className="bodyfat-empty">
           <Info />
           <div>
@@ -36,10 +44,56 @@ export function BodyCompositionCard({
             <div>
               <span>Grasa corporal estimada</span>
               <strong>{estimate.bodyFatPercentage.toFixed(1)}%</strong>
-              <small>{estimate.category}</small>
+              <small>{activeRange.label} · {activeRange.description}</small>
             </div>
-            <div className="bodyfat-gauge"><i style={{ width: `${Math.min(100, estimate.bodyFatPercentage / 45 * 100)}%` }} /></div>
+
+            <div className="bodyfat-reference">
+              <div className="bodyfat-reference-heading">
+                <span>Rangos de referencia para {profile.sex === 'female' ? 'mujeres' : 'hombres'}</span>
+                <strong>{activeRange.label}</strong>
+              </div>
+
+              <div className="bodyfat-scale-chart">
+                <div className="bodyfat-scale-marker" style={{ left: `${markerPosition}%` }}>
+                  <strong>{estimate.bodyFatPercentage.toFixed(1)}%</strong>
+                  <i />
+                </div>
+
+                <div className="bodyfat-scale-track" aria-label={`Grasa corporal estimada: ${estimate.bodyFatPercentage.toFixed(1)}%, categoría ${activeRange.label}`}>
+                  {scale.ranges.map((range) => (
+                    <span
+                      key={`${range.min}-${range.max}`}
+                      className={`bodyfat-scale-segment ${range.tone}`}
+                      style={{ width: `${(range.max - range.min) / scale.max * 100}%` }}
+                      title={`${range.label}: ${range.description}`}
+                    />
+                  ))}
+                </div>
+
+                <div className="bodyfat-scale-boundaries" aria-hidden="true">
+                  {scale.ranges.slice(0, -1).map((range) => (
+                    <span key={range.max} style={{ left: `${range.max / scale.max * 100}%` }}>{range.max}%</span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bodyfat-scale-legend">
+                {scale.ranges.map((range, index) => (
+                  <div
+                    key={`${range.label}-${range.min}`}
+                    className={range === activeRange ? 'bodyfat-legend-item active' : 'bodyfat-legend-item'}
+                  >
+                    <i className={range.tone} />
+                    <div>
+                      <strong>{range.label} <span>{formatBodyFatRange(range, index === scale.ranges.length - 1)}</span></strong>
+                      <small>{range.description}</small>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
+
           <div className="bodyfat-grid">
             <div><span>Masa grasa</span><strong>{estimate.fatMassKg.toFixed(1)} kg</strong></div>
             <div><span>Masa magra</span><strong>{estimate.leanMassKg.toFixed(1)} kg</strong></div>
@@ -50,7 +104,7 @@ export function BodyCompositionCard({
           {estimate.estimatedWeightToLoseKg !== null && estimate.estimatedWeightToLoseKg > 0 && (
             <div className="bodyfat-target"><Scale size={17} /><span>Brecha estimada al objetivo: <strong>{estimate.estimatedWeightToLoseKg.toFixed(1)} kg</strong></span></div>
           )}
-          <p className="bodyfat-disclaimer">Estimación antropométrica, no diagnóstico. El peso ideal supone conservar la masa magra; la cintura se despeja desde la fórmula U.S. Navy al porcentaje ideal Jackson & Pollock.</p>
+          <p className="bodyfat-disclaimer">Estimación antropométrica, no diagnóstico. Los rangos de la barra son referencias generales diferenciadas por sexo. El peso ideal supone conservar la masa magra; la cintura se despeja desde la fórmula U.S. Navy al porcentaje ideal Jackson & Pollock.</p>
         </>
       )}
     </section>
