@@ -2,6 +2,7 @@ import { Activity, CalendarDays, Check, ChevronRight, CloudOff, Dumbbell, Flame,
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { BodyCompositionCard } from '../components/BodyCompositionCard';
+import { DecimalInput } from '../components/DecimalInput';
 import { ProgressBar } from '../components/ProgressBar';
 import { ScoreRing } from '../components/ScoreRing';
 import { useAuth } from '../context/AuthContext';
@@ -173,10 +174,10 @@ export function TodayPage() {
           </span>
         </div>
         <div className="form-grid">
-          <label><span><Scale size={16} /> Peso (kg)</span><input inputMode="decimal" type="number" step="0.1" value={log.weight_kg ?? ''} onChange={(e) => update('weight_kg', numberOrNull(e.target.value))} /></label>
-          <label><span><Ruler size={16} /> Cintura (cm)</span><input inputMode="decimal" type="number" step="0.1" value={log.waist_cm ?? ''} onChange={(e) => update('waist_cm', numberOrNull(e.target.value))} /></label>
-          <label><span><Ruler size={16} /> Cuello (cm)</span><input inputMode="decimal" type="number" step="0.1" value={log.neck_cm ?? profile.neck_cm ?? ''} onChange={(e) => update('neck_cm', numberOrNull(e.target.value))} /><small className="field-help">Si no cambia, usa la medida guardada en Ajustes.</small></label>
-          {profile.sex === 'female' && <label><span><Ruler size={16} /> Cadera (cm)</span><input inputMode="decimal" type="number" step="0.1" value={log.hip_cm ?? profile.hip_cm ?? ''} onChange={(e) => update('hip_cm', numberOrNull(e.target.value))} /><small className="field-help">Mide en la parte más ancha.</small></label>}
+          <label><span><Scale size={16} /> Peso (kg)</span><DecimalInput value={log.weight_kg} onValueChange={(value) => update('weight_kg', value)} /></label>
+          <label><span><Ruler size={16} /> Cintura (cm)</span><DecimalInput value={log.waist_cm} onValueChange={(value) => update('waist_cm', value)} /></label>
+          <label><span><Ruler size={16} /> Cuello (cm)</span><DecimalInput value={log.neck_cm ?? profile.neck_cm} onValueChange={(value) => update('neck_cm', value)} /><small className="field-help">Si no cambia, usa la medida guardada en Ajustes.</small></label>
+          {profile.sex === 'female' && <label><span><Ruler size={16} /> Cadera (cm)</span><DecimalInput value={log.hip_cm ?? profile.hip_cm} onValueChange={(value) => update('hip_cm', value)} /><small className="field-help">Mide en la parte más ancha.</small></label>}
           <label><span><Flame size={16} /> Calorías</span><input inputMode="numeric" type="number" value={log.calories ?? ''} onChange={(e) => update('calories', numberOrNull(e.target.value))} /></label>
           <label><span><Zap size={16} /> Proteína (g)</span><input inputMode="numeric" type="number" value={log.protein_g ?? ''} onChange={(e) => update('protein_g', numberOrNull(e.target.value))} /></label>
           <label><span><Footprints size={16} /> Pasos</span><input inputMode="numeric" type="number" value={log.steps ?? ''} onChange={(e) => update('steps', numberOrNull(e.target.value))} /></label>
