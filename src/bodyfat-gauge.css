@@ -19,15 +19,16 @@
 .bodyfat-scale-chart {
   position: relative;
   min-width: 0;
-  padding-top: 27px;
+  padding-top: 33px;
 }
 
 .bodyfat-scale-marker {
   position: absolute;
-  top: -10px;
+  top: -12px;
   z-index: 4;
   display: grid;
   justify-items: center;
+  gap: 4px;
   transform: translateX(-50%);
   pointer-events: none;
 }
@@ -78,7 +79,7 @@
 
 .bodyfat-scale-boundaries {
   position: absolute;
-  top: 55px;
+  top: 61px;
   right: 0;
   left: 0;
   height: 15px;
@@ -156,7 +157,7 @@
   }
 
   .bodyfat-scale-chart {
-    padding-top: 25px;
+    padding-top: 30px;
   }
 
   .bodyfat-scale-track {
@@ -164,7 +165,8 @@
   }
 
   .bodyfat-scale-marker {
-    top: -9px;
+    top: -11px;
+    gap: 4px;
   }
 
   .bodyfat-scale-marker strong {
@@ -173,7 +175,7 @@
   }
 
   .bodyfat-scale-boundaries {
-    top: 49px;
+    top: 54px;
   }
 
   .bodyfat-scale-boundaries span {
@@ -195,11 +197,11 @@
     padding-left: 9px;
   }
 
-  .bodyfat-scale-label.narrow .range-label-full {
+  .bodyfat-scale-label.compact-on-mobile .range-label-full {
     display: none !important;
   }
 
-  .bodyfat-scale-label.narrow .range-label-compact {
+  .bodyfat-scale-label.compact-on-mobile .range-label-compact {
     display: block !important;
   }
 }
