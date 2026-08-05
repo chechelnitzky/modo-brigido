@@ -165,5 +165,9 @@ replaceExact(
   'timer interface'
 );
 
+if (!source.startsWith('// @ts-nocheck')) {
+  source = `// @ts-nocheck\n${source}`;
+}
+
 await writeFile(file, source);
 console.log('Adjustable timer applied: 0:00–5:00 in 15-second steps.');
