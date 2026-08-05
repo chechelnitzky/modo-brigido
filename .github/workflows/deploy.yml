@@ -9,6 +9,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  issues: write
 
 concurrency:
   group: pages
@@ -27,13 +28,33 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install dependencies
-        run: npm install --no-audit --no-fund
-
-      - name: Build application
+      - name: Install and build
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          rm -rf dist
-          npm run build
+          set +e
+          npm install --no-audit --no-fund 2>&1 | tee build-output.txt
+          status=${PIPESTATUS[0]}
+
+          if [ "$status" -eq 0 ]; then
+            rm -rf dist
+            npm run build 2>&1 | tee -a build-output.txt
+            status=${PIPESTATUS[0]}
+          fi
+
+          if [ "$status" -ne 0 ]; then
+            {
+              echo "El build automático falló en el commit $GITHUB_SHA."
+              echo
+              echo '```text'
+              tail -c 50000 build-output.txt
+              echo
+              echo '```'
+            } > issue-body.md
+            gh issue create --title "Build failure: ${GITHUB_SHA:0:7}" --body-file issue-body.md
+            exit "$status"
+          fi
+
           printf '%s\n' "$GITHUB_SHA" > dist/version.txt
 
       - name: Setup Pages
