@@ -1,38 +1,31 @@
 .bodyfat-reference {
   min-width: 0;
-  padding: 18px;
+  padding: 17px 18px 14px;
   border: 1px solid #2c3a32;
   border-radius: 18px;
   background: #0d1410;
+  overflow: hidden;
 }
 
 .bodyfat-reference-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 30px;
+  margin-bottom: 26px;
 }
 
 .bodyfat-reference-heading span {
   color: var(--muted);
-  font-size: 11px;
-}
-
-.bodyfat-reference-heading strong {
-  color: var(--green);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .bodyfat-scale-chart {
   position: relative;
-  padding-top: 20px;
-  padding-bottom: 29px;
+  min-width: 0;
+  padding-top: 27px;
+  padding-bottom: 58px;
 }
 
 .bodyfat-scale-marker {
   position: absolute;
-  top: -12px;
+  top: -10px;
   z-index: 4;
   display: grid;
   justify-items: center;
@@ -41,12 +34,13 @@
 }
 
 .bodyfat-scale-marker strong {
-  padding: 3px 7px;
-  border-radius: 8px;
+  padding: 4px 8px;
+  border: 1px solid #34443a;
+  border-radius: 9px;
   color: #f5f8f6;
   background: #050806;
-  border: 1px solid #34443a;
   font-size: 11px;
+  line-height: 1;
   white-space: nowrap;
   box-shadow: 0 5px 18px rgba(0, 0, 0, .45);
 }
@@ -62,10 +56,10 @@
 .bodyfat-scale-track {
   display: flex;
   width: 100%;
-  height: 25px;
+  height: 27px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, .1);
-  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 8px;
   background: #141b16;
   box-shadow: inset 0 2px 8px rgba(0, 0, 0, .35);
 }
@@ -73,32 +67,29 @@
 .bodyfat-scale-segment {
   display: block;
   height: 100%;
-  min-width: 3px;
+  min-width: 2px;
 }
 
-.bodyfat-scale-segment.critical,
-.bodyfat-legend-item > i.critical { background: #8f1111; }
-.bodyfat-scale-segment.essential,
-.bodyfat-legend-item > i.essential { background: #f4df19; }
-.bodyfat-scale-segment.athlete,
-.bodyfat-legend-item > i.athlete { background: #16e86d; }
-.bodyfat-scale-segment.fitness,
-.bodyfat-legend-item > i.fitness { background: #12964d; }
-.bodyfat-scale-segment.average,
-.bodyfat-legend-item > i.average { background: #e7c70c; }
-.bodyfat-scale-segment.obesity,
-.bodyfat-legend-item > i.obesity { background: #9c1010; }
+.bodyfat-scale-segment.critical { background: #8f1111; }
+.bodyfat-scale-segment.essential { background: #f4df19; }
+.bodyfat-scale-segment.athlete { background: #16e86d; }
+.bodyfat-scale-segment.fitness { background: #12964d; }
+.bodyfat-scale-segment.average { background: #e7c70c; }
+.bodyfat-scale-segment.obesity { background: #9c1010; }
 
 .bodyfat-scale-boundaries {
   position: absolute;
-  inset: 48px 0 auto;
-  height: 18px;
+  top: 55px;
+  right: 0;
+  left: 0;
+  height: 17px;
+  pointer-events: none;
 }
 
 .bodyfat-scale-boundaries span {
   position: absolute;
   transform: translateX(-50%);
-  color: #c8d0cb;
+  color: #b8c1bb;
   font-size: 9px;
   line-height: 1;
   white-space: nowrap;
@@ -110,90 +101,152 @@
   left: 50%;
   bottom: 11px;
   width: 1px;
-  height: 7px;
-  background: rgba(255, 255, 255, .7);
+  height: 8px;
+  background: rgba(255, 255, 255, .72);
 }
 
-.bodyfat-scale-legend {
+.bodyfat-scale-labels {
+  position: absolute;
+  top: 73px;
+  right: 0;
+  left: 0;
+  height: 38px;
+  pointer-events: none;
+}
+
+.bodyfat-scale-label {
+  position: absolute;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 8px;
+  width: 82px;
+  justify-items: center;
+  transform: translateX(-50%);
+  text-align: center;
 }
 
-.bodyfat-legend-item {
-  display: grid;
-  grid-template-columns: 10px minmax(0, 1fr);
-  gap: 8px;
-  align-items: start;
-  min-width: 0;
-  padding: 9px;
-  border: 1px solid #28362f;
-  border-radius: 12px;
-  background: #101813;
-}
-
-.bodyfat-legend-item.active {
-  border-color: rgba(112, 228, 72, .55);
-  background: rgba(112, 228, 72, .07);
-  box-shadow: 0 0 0 2px rgba(112, 228, 72, .06);
-}
-
-.bodyfat-legend-item > i {
-  width: 10px;
-  height: 10px;
-  margin-top: 2px;
-  border-radius: 3px;
-}
-
-.bodyfat-legend-item strong,
-.bodyfat-legend-item small {
+.bodyfat-scale-label strong,
+.bodyfat-scale-label small,
+.bodyfat-scale-label b {
   display: block;
 }
 
-.bodyfat-legend-item strong {
-  color: #eef3ef;
-  font-size: 11px;
-  line-height: 1.25;
+.bodyfat-scale-label strong {
+  color: #e5ebe7;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.05;
+  white-space: nowrap;
 }
 
-.bodyfat-legend-item strong span {
-  display: inline;
-  margin-left: 3px;
-  color: var(--muted);
-  font-size: 9px;
-  font-weight: 600;
+.bodyfat-scale-label small {
+  margin-top: 3px;
+  color: #8f9c94;
+  font-size: 8px;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
 }
 
-.bodyfat-legend-item small {
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: 9px;
-  line-height: 1.3;
+.bodyfat-scale-label.active strong {
+  color: var(--green);
+}
+
+.bodyfat-scale-label.active small {
+  color: #c8d6cc;
+}
+
+.range-label-compact {
+  display: none !important;
 }
 
 @media (max-width: 700px) {
   .bodyfat-reference {
-    padding: 14px;
+    padding: 14px 12px 10px;
   }
 
   .bodyfat-reference-heading {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 4px;
+    margin-bottom: 23px;
+  }
+
+  .bodyfat-reference-heading span {
+    font-size: 11px;
+  }
+
+  .bodyfat-scale-chart {
+    padding-top: 25px;
+    padding-bottom: 52px;
   }
 
   .bodyfat-scale-track {
     height: 23px;
   }
 
-  .bodyfat-scale-legend {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .bodyfat-scale-marker {
+    top: -9px;
+  }
+
+  .bodyfat-scale-marker strong {
+    padding: 3px 6px;
+    font-size: 10px;
+  }
+
+  .bodyfat-scale-boundaries {
+    top: 49px;
+  }
+
+  .bodyfat-scale-boundaries span {
+    font-size: 8px;
+  }
+
+  .bodyfat-scale-labels {
+    top: 66px;
+  }
+
+  .bodyfat-scale-label {
+    width: 54px;
+  }
+
+  .bodyfat-scale-label strong {
+    font-size: 8px;
+  }
+
+  .bodyfat-scale-label small {
+    margin-top: 2px;
+    font-size: 7px;
+  }
+
+  .range-label-full {
+    display: none !important;
+  }
+
+  .range-label-compact {
+    display: block !important;
   }
 }
 
-@media (max-width: 390px) {
-  .bodyfat-scale-legend {
-    grid-template-columns: 1fr;
+@media (max-width: 420px) {
+  .bodyfat-reference {
+    padding-right: 9px;
+    padding-left: 9px;
+  }
+
+  .bodyfat-scale-chart {
+    padding-bottom: 48px;
+  }
+
+  .bodyfat-scale-labels {
+    top: 65px;
+  }
+
+  .bodyfat-scale-label {
+    width: 38px;
+  }
+
+  .bodyfat-scale-label strong {
+    font-size: 7px;
+    letter-spacing: -.01em;
+  }
+
+  .bodyfat-scale-label small {
+    font-size: 6.5px;
   }
 }
