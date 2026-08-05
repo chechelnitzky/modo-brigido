@@ -1,0 +1,199 @@
+.bodyfat-reference {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid #2c3a32;
+  border-radius: 18px;
+  background: #0d1410;
+}
+
+.bodyfat-reference-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 30px;
+}
+
+.bodyfat-reference-heading span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.bodyfat-reference-heading strong {
+  color: var(--green);
+  font-size: 13px;
+}
+
+.bodyfat-scale-chart {
+  position: relative;
+  padding-top: 20px;
+  padding-bottom: 29px;
+}
+
+.bodyfat-scale-marker {
+  position: absolute;
+  top: -12px;
+  z-index: 4;
+  display: grid;
+  justify-items: center;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.bodyfat-scale-marker strong {
+  padding: 3px 7px;
+  border-radius: 8px;
+  color: #f5f8f6;
+  background: #050806;
+  border: 1px solid #34443a;
+  font-size: 11px;
+  white-space: nowrap;
+  box-shadow: 0 5px 18px rgba(0, 0, 0, .45);
+}
+
+.bodyfat-scale-marker i {
+  width: 0;
+  height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-top: 8px solid #f5f8f6;
+}
+
+.bodyfat-scale-track {
+  display: flex;
+  width: 100%;
+  height: 25px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 7px;
+  background: #141b16;
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, .35);
+}
+
+.bodyfat-scale-segment {
+  display: block;
+  height: 100%;
+  min-width: 3px;
+}
+
+.bodyfat-scale-segment.critical,
+.bodyfat-legend-item > i.critical { background: #8f1111; }
+.bodyfat-scale-segment.essential,
+.bodyfat-legend-item > i.essential { background: #f4df19; }
+.bodyfat-scale-segment.athlete,
+.bodyfat-legend-item > i.athlete { background: #16e86d; }
+.bodyfat-scale-segment.fitness,
+.bodyfat-legend-item > i.fitness { background: #12964d; }
+.bodyfat-scale-segment.average,
+.bodyfat-legend-item > i.average { background: #e7c70c; }
+.bodyfat-scale-segment.obesity,
+.bodyfat-legend-item > i.obesity { background: #9c1010; }
+
+.bodyfat-scale-boundaries {
+  position: absolute;
+  inset: 48px 0 auto;
+  height: 18px;
+}
+
+.bodyfat-scale-boundaries span {
+  position: absolute;
+  transform: translateX(-50%);
+  color: #c8d0cb;
+  font-size: 9px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.bodyfat-scale-boundaries span::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 11px;
+  width: 1px;
+  height: 7px;
+  background: rgba(255, 255, 255, .7);
+}
+
+.bodyfat-scale-legend {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.bodyfat-legend-item {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid #28362f;
+  border-radius: 12px;
+  background: #101813;
+}
+
+.bodyfat-legend-item.active {
+  border-color: rgba(112, 228, 72, .55);
+  background: rgba(112, 228, 72, .07);
+  box-shadow: 0 0 0 2px rgba(112, 228, 72, .06);
+}
+
+.bodyfat-legend-item > i {
+  width: 10px;
+  height: 10px;
+  margin-top: 2px;
+  border-radius: 3px;
+}
+
+.bodyfat-legend-item strong,
+.bodyfat-legend-item small {
+  display: block;
+}
+
+.bodyfat-legend-item strong {
+  color: #eef3ef;
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.bodyfat-legend-item strong span {
+  display: inline;
+  margin-left: 3px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.bodyfat-legend-item small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.3;
+}
+
+@media (max-width: 700px) {
+  .bodyfat-reference {
+    padding: 14px;
+  }
+
+  .bodyfat-reference-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .bodyfat-scale-track {
+    height: 23px;
+  }
+
+  .bodyfat-scale-legend {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 390px) {
+  .bodyfat-scale-legend {
+    grid-template-columns: 1fr;
+  }
+}
