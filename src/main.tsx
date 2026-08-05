@@ -16,7 +16,6 @@ if (!rootElement) {
   throw new Error('No se encontró el contenedor principal de la aplicación.');
 }
 
-// La interfaz debe aparecer aunque Safari/iOS no soporte alguna API opcional.
 createRoot(rootElement).render(<StrictMode><App /></StrictMode>);
 (window as Window & { __MODO_BRIGIDO_BOOTED__?: boolean }).__MODO_BRIGIDO_BOOTED__ = true;
 
@@ -32,30 +31,36 @@ function startOptionalFeature(name: string, start: () => unknown): void {
 }
 
 function registerProgressiveWebApp(): void {
-  let applyUpdate: ((reloadPage?: boolean) => Promise<void>) | undefined;
+  const reloadKey = 'modo-brigido-update-reload';
+  let updateSW: ((reloadPage?: boolean) => Promise<void>) | undefined;
+  let reloading = false;
 
-  applyUpdate = registerSW({
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloading || sessionStorage.getItem(reloadKey) === '1') return;
+      reloading = true;
+      sessionStorage.setItem(reloadKey, '1');
+      window.location.reload();
+    });
+  }
+
+  updateSW = registerSW({
     immediate: true,
     onNeedRefresh() {
-      // Activa la versión nueva sin recargar la página actual. En iPhone, forzar
-      // una recarga aquí puede mezclar el HTML antiguo con archivos JS/CSS nuevos.
-      // La versión activada se usa de forma limpia en la próxima apertura.
-      void applyUpdate?.(false).catch((error) => {
+      void updateSW?.(false).catch((error) => {
         console.warn('[Modo Brígido] No se pudo activar la actualización de la PWA.', error);
       });
     },
     onRegisteredSW(_serviceWorkerUrl, registration) {
-      // Revisa la versión publicada cada vez que se abre la aplicación, pero no
-      // fuerza una recarga mientras el usuario está dentro.
       void registration?.update().catch((error) => {
         console.warn('[Modo Brígido] No se pudo revisar la actualización de la PWA.', error);
       });
     }
   });
+
+  window.setTimeout(() => sessionStorage.removeItem(reloadKey), 15000);
 }
 
-// Se inicia después del primer render para que una incompatibilidad del navegador
-// nunca vuelva a dejar toda la aplicación en blanco.
 window.setTimeout(() => {
   startOptionalFeature('PWA', () => registerProgressiveWebApp());
   startOptionalFeature('sincronización offline', () => startOfflineSync());
