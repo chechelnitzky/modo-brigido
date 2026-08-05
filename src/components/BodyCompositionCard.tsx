@@ -5,11 +5,8 @@ import { estimateBodyCompositionForLog, missingBodyFatFields } from '../lib/body
 import { getBodyFatScale, getBodyFatScaleRange } from '../lib/bodyFatScale';
 
 const COMPACT_RANGE_LABELS: Record<string, string> = {
-  Esencial: 'Esenc.',
-  Atleta: 'Atl.',
-  Fitness: 'Fit.',
-  Promedio: 'Prom.',
-  Obesidad: 'Obes.'
+  Esencial: 'Esen.',
+  Fitness: 'Fit.'
 };
 
 export function BodyCompositionCard({
@@ -87,10 +84,11 @@ export function BodyCompositionCard({
                   {scale.ranges.slice(1).map((range) => {
                     const left = range.min / scale.max * 100;
                     const width = (range.max - range.min) / scale.max * 100;
+                    const useCompactLabel = range.label in COMPACT_RANGE_LABELS;
                     const classes = [
                       'bodyfat-scale-label',
                       range === activeRange ? 'active' : '',
-                      width <= 10.5 ? 'narrow' : ''
+                      useCompactLabel ? 'compact-on-mobile' : ''
                     ].filter(Boolean).join(' ');
 
                     return (
@@ -101,7 +99,7 @@ export function BodyCompositionCard({
                         title={range.description}
                       >
                         <b className="range-label-full">{range.label}</b>
-                        <b className="range-label-compact">{COMPACT_RANGE_LABELS[range.label] ?? range.label}</b>
+                        {useCompactLabel && <b className="range-label-compact">{COMPACT_RANGE_LABELS[range.label]}</b>}
                       </span>
                     );
                   })}
