@@ -4,6 +4,7 @@ import {
   cancelCurrentTimerPush,
   ensurePushSubscription,
   reconcileTimerPushJob,
+  schedulePushForActiveTimer,
   schedulePushForTimer
 } from './pushNotifications';
 
@@ -56,7 +57,15 @@ export function getTimerNotificationPermission(): TimerNotificationPermission {
 export async function prepareTimerAlerts(schedule?: TimerAlertSchedule): Promise<void> {
   const context = getAudioContext();
   if (context?.state === 'suspended') await context.resume();
-  if (schedule) await schedulePushForTimer(schedule);
+
+  if (schedule) {
+    await schedulePushForTimer(schedule);
+    return;
+  }
+
+  // WorkoutSession guarda el endAt inmediatamente después de llamar esta función.
+  // Esperamos brevemente y tomamos ese valor para agendar el push directo una sola vez.
+  window.setTimeout(() => { void schedulePushForActiveTimer(); }, 280);
 }
 
 export async function cancelScheduledTimerAlert(): Promise<void> {
