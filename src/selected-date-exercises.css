@@ -1,19 +1,24 @@
 .date-heading-wrap {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, max-content);
   align-items: start;
-  gap: 8px;
   min-width: 0;
 }
 .date-heading-wrap > .eyebrow { grid-column: 1; grid-row: 1; }
-.date-heading-button {
+.date-heading-button,
+.native-date-picker {
   grid-column: 1;
   grid-row: 2;
+}
+.date-heading-button {
+  position: relative;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
   gap: 9px;
   width: max-content;
   max-width: 100%;
+  min-height: 48px;
   padding: 0;
   border: 0;
   color: inherit;
@@ -24,42 +29,34 @@
 .date-heading-button svg { flex: 0 0 auto; color: var(--green); pointer-events: none; }
 
 /*
- * iOS/WebKit no abre de forma confiable un input date transparente mediante
- * showPicker() o input.click(). Se mantiene el control nativo visible para que
- * el toque del usuario llegue directamente al selector del sistema.
+ * El input nativo queda exactamente encima de la fecha. No se ve, pero recibe
+ * directamente el toque del usuario, que es lo que iOS/WebKit exige para abrir
+ * su selector de fecha. No depende de showPicker() ni de un click simulado.
  */
 .native-date-picker {
-  grid-column: 1;
-  grid-row: 3;
+  position: relative;
+  z-index: 3;
+  align-self: stretch;
+  justify-self: stretch;
   display: block;
-  width: min(280px, 100%);
+  width: 100%;
   min-width: 0;
-  min-height: 46px;
+  min-height: 48px;
   margin: 0;
-  padding: 10px 12px;
-  border: 1px solid #304038;
-  border-radius: 13px;
-  opacity: 1;
-  background: #0e1511;
-  color: #f5f8f6;
-  color-scheme: dark;
-  font: inherit;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  opacity: .01;
+  background: transparent;
+  color: transparent;
   font-size: 16px;
   cursor: pointer;
+  pointer-events: auto;
   -webkit-appearance: auto;
   appearance: auto;
 }
-.native-date-picker:focus {
-  border-color: rgba(112, 228, 72, .7);
-  box-shadow: 0 0 0 3px rgba(112, 228, 72, .1);
-  outline: none;
-}
-.native-date-picker::-webkit-calendar-picker-indicator {
-  opacity: 1;
-  cursor: pointer;
-}
-.date-heading-wrap > .muted { grid-column: 1; grid-row: 4; }
-.history-today-button { grid-column: 1; grid-row: 5; justify-self: start; }
+.date-heading-wrap > .muted { grid-column: 1 / -1; grid-row: 3; }
+.history-today-button { grid-column: 1; grid-row: 4; justify-self: start; }
 
 .global-date-chip {
   margin-left: auto;
@@ -134,5 +131,4 @@
   .global-date-chip { order: 3; width: 100%; max-width: none; justify-content: center; margin-left: 0; }
   .custom-exercise-grid { grid-template-columns: 1fr; }
   .custom-exercise-grid label:last-child { grid-column: auto; }
-  .native-date-picker { width: 100%; min-height: 48px; }
 }
