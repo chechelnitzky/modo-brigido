@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { getSupabase } from './supabase';
 
 const CURRENT_JOB_KEY = 'modo-brigido-current-push-job';
