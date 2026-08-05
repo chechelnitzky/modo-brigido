@@ -9,6 +9,7 @@ import './offline.css';
 import './features.css';
 import './selected-date-exercises.css';
 import './bodyfat-gauge.css';
+import './step-distance.css';
 
 const rootElement = document.getElementById('root');
 
