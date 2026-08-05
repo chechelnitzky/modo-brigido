@@ -4,6 +4,12 @@ import type { DailyLog, Profile } from '../types';
 import { estimateBodyCompositionForLog, missingBodyFatFields } from '../lib/bodyFat';
 import { formatBodyFatRange, getBodyFatScale, getBodyFatScaleRange } from '../lib/bodyFatScale';
 
+const COMPACT_RANGE_LABELS: Record<string, string> = {
+  Esencial: 'Esenc.',
+  Promedio: 'Prom.',
+  Obesidad: 'Obes.'
+};
+
 export function BodyCompositionCard({
   profile,
   log,
@@ -50,7 +56,6 @@ export function BodyCompositionCard({
             <div className="bodyfat-reference">
               <div className="bodyfat-reference-heading">
                 <span>Rangos de referencia para {profile.sex === 'female' ? 'mujeres' : 'hombres'}</span>
-                <strong>{activeRange.label}</strong>
               </div>
 
               <div className="bodyfat-scale-chart">
@@ -75,21 +80,27 @@ export function BodyCompositionCard({
                     <span key={range.max} style={{ left: `${range.max / scale.max * 100}%` }}>{range.max}%</span>
                   ))}
                 </div>
-              </div>
 
-              <div className="bodyfat-scale-legend">
-                {scale.ranges.map((range, index) => (
-                  <div
-                    key={`${range.label}-${range.min}`}
-                    className={range === activeRange ? 'bodyfat-legend-item active' : 'bodyfat-legend-item'}
-                  >
-                    <i className={range.tone} />
-                    <div>
-                      <strong>{range.label} <span>{formatBodyFatRange(range, index === scale.ranges.length - 1)}</span></strong>
-                      <small>{range.description}</small>
-                    </div>
-                  </div>
-                ))}
+                <div className="bodyfat-scale-labels">
+                  {scale.ranges.slice(1).map((range, index) => {
+                    const center = ((range.min + range.max) / 2) / scale.max * 100;
+                    const isLast = index === scale.ranges.length - 2;
+                    return (
+                      <span
+                        key={`${range.label}-${range.min}`}
+                        className={range === activeRange ? 'bodyfat-scale-label active' : 'bodyfat-scale-label'}
+                        style={{ left: `${center}%` }}
+                        title={range.description}
+                      >
+                        <strong>
+                          <b className="range-label-full">{range.label}</b>
+                          <b className="range-label-compact">{COMPACT_RANGE_LABELS[range.label] ?? range.label}</b>
+                        </strong>
+                        <small>{formatBodyFatRange(range, isLast)}</small>
+                      </span>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </div>
