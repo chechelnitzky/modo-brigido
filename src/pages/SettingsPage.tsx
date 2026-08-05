@@ -1,4 +1,4 @@
-import { Activity, Download, LogOut, Ruler, Save, Server, Settings, Upload } from 'lucide-react';
+import { Activity, Download, Footprints, LogOut, RotateCcw, Ruler, Save, Server, Settings, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { clearAppConfig } from '../lib/config';
@@ -7,6 +7,7 @@ import { estimateBodyCompositionForLog } from '../lib/bodyFat';
 import { numberOrNull } from '../lib/helpers';
 import { getSupabase } from '../lib/supabase';
 import { cacheKeys, cacheProfile, getCached, saveMutation } from '../lib/offline';
+import { getStepConversion } from '../lib/steps';
 import type { DailyLog, Profile, Sex } from '../types';
 
 export function SettingsPage() {
@@ -45,6 +46,10 @@ export function SettingsPage() {
 
   if (!form || !profile || !user) return <div className="page-loading">Cargando ajustes…</div>;
 
+  const stepConversion = getStepConversion(form.height_cm, form.steps_per_km);
+  const stepLengthCm = stepConversion.stepLengthMeters * 100;
+  const targetDistanceKm = form.steps_target / stepConversion.stepsPerKm;
+
   const save = async () => {
     setError('');
     setMessage('');
@@ -66,6 +71,7 @@ export function SettingsPage() {
         height_cm: next.height_cm,
         neck_cm: next.neck_cm,
         hip_cm: next.sex === 'female' ? next.hip_cm : null,
+        steps_per_km: next.steps_per_km,
         updated_at: new Date().toISOString()
       },
       match: { id: user.id },
@@ -152,6 +158,34 @@ export function SettingsPage() {
           {form.sex === 'female' && <label><span><Ruler size={16} /> Cadera base (cm)</span><input type="number" step="0.1" value={form.hip_cm ?? ''} onChange={(e) => setForm({ ...form, hip_cm: numberOrNull(e.target.value) })} /><small className="field-help">Mide la zona de mayor circunferencia.</small></label>}
         </div>
         <div className="alert success">Al guardar el registro de hoy, la app actualizará automáticamente el peso meta y la cintura meta.</div>
+      </section>
+
+      <section className="panel step-calibration-panel">
+        <div className="section-title"><div><p className="eyebrow">CAMINATA</p><h2>Conversión pasos y kilómetros</h2></div><Footprints /></div>
+        <p className="muted">La app estima la longitud de cada paso con tu altura × 0,415. Puedes reemplazar esa estimación caminando 1 km real y anotando cuántos pasos hiciste.</p>
+        <div className="step-calibration-grid">
+          <label>
+            Pasos medidos en 1 km
+            <input
+              type="number"
+              inputMode="numeric"
+              min="500"
+              max="3000"
+              step="1"
+              value={form.steps_per_km ?? ''}
+              placeholder={Math.round(getStepConversion(form.height_cm, null).stepsPerKm).toString()}
+              onChange={(event) => setForm({ ...form, steps_per_km: numberOrNull(event.target.value) })}
+            />
+            <small className="field-help">Déjalo vacío para seguir usando la estimación automática por altura.</small>
+          </label>
+          <div className="step-calibration-summary">
+            <span>{stepConversion.source === 'calibrated' ? 'Calibración personalizada activa' : stepConversion.source === 'height' ? 'Estimación actual por altura' : 'Estimación estándar temporal'}</span>
+            <strong>1 paso ≈ {stepLengthCm.toLocaleString('es-CL', { maximumFractionDigits: 1 })} cm</strong>
+            <strong>1 km ≈ {Math.round(stepConversion.stepsPerKm).toLocaleString('es-CL')} pasos</strong>
+            <small>Tu meta de {form.steps_target.toLocaleString('es-CL')} pasos equivale a {targetDistanceKm.toLocaleString('es-CL', { maximumFractionDigits: 2 })} km.</small>
+          </div>
+        </div>
+        {form.steps_per_km && <button type="button" className="secondary-button compact step-calibration-reset" onClick={() => setForm({ ...form, steps_per_km: null })}><RotateCcw size={15} /> Volver al cálculo por altura</button>}
       </section>
 
       <button className="primary-button settings-save" onClick={save}><Save size={18} /> Guardar perfil y metas</button>
