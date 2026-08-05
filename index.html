@@ -6,6 +6,64 @@
     <meta name="theme-color" content="#0a0f0c" />
     <meta name="description" content="Seguimiento de peso, nutrición, pasos y entrenamiento." />
     <title>Modo Brígido</title>
+    <script>
+      (() => {
+        const recoveryKey = 'modo-brigido-pwa-recovery-at';
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+          || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+        if (!isIOS) return;
+
+        const recover = async () => {
+          const now = Date.now();
+          const lastRecovery = Number(sessionStorage.getItem(recoveryKey) || 0);
+          if (now - lastRecovery < 60000) return;
+          sessionStorage.setItem(recoveryKey, String(now));
+
+          try {
+            if ('serviceWorker' in navigator) {
+              const registrations = await navigator.serviceWorker.getRegistrations();
+              await Promise.all(registrations.map((registration) => registration.unregister()));
+            }
+          } catch (error) {
+            console.warn('[Modo Brígido] No se pudo limpiar el service worker.', error);
+          }
+
+          try {
+            if ('caches' in window) {
+              const keys = await caches.keys();
+              await Promise.all(keys.map((key) => caches.delete(key)));
+            }
+          } catch (error) {
+            console.warn('[Modo Brígido] No se pudo limpiar la caché PWA.', error);
+          }
+
+          const url = new URL(window.location.href);
+          url.searchParams.set('_recovery', String(now));
+          window.location.replace(url.toString());
+        };
+
+        window.addEventListener('error', (event) => {
+          const target = event.target;
+          const resourceFailed = target instanceof HTMLScriptElement || target instanceof HTMLLinkElement;
+          const message = String(event.message || '');
+          if (resourceFailed || /module script|failed to fetch|load failed|loading chunk/i.test(message)) {
+            void recover();
+          }
+        }, true);
+
+        window.addEventListener('unhandledrejection', (event) => {
+          const message = String(event.reason?.message || event.reason || '');
+          if (/module script|failed to fetch|load failed|loading chunk/i.test(message)) {
+            void recover();
+          }
+        });
+
+        window.setTimeout(() => {
+          if (!window.__MODO_BRIGIDO_BOOTED__) void recover();
+        }, 8000);
+      })();
+    </script>
     <script src="./app-config.js"></script>
   </head>
   <body>
