@@ -16,9 +16,9 @@ function toDateKey(date: Date) {
 
 function getWeekRange(dateKey: string) {
   const date = new Date(`${dateKey}T12:00:00`);
-  const mondayOffset = (date.getDay() + 6) % 7;
+  const sundayOffset = date.getDay();
   const start = new Date(date);
-  start.setDate(date.getDate() - mondayOffset);
+  start.setDate(date.getDate() - sundayOffset);
   const end = new Date(start);
   end.setDate(start.getDate() + 6);
   return { start: toDateKey(start), end: toDateKey(end) };
