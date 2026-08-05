@@ -9,7 +9,6 @@ permissions:
   contents: read
   pages: write
   id-token: write
-  issues: write
 
 concurrency:
   group: pages
@@ -28,33 +27,13 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install and build
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build application
         run: |
-          set +e
-          npm install --no-audit --no-fund 2>&1 | tee build-output.txt
-          status=${PIPESTATUS[0]}
-
-          if [ "$status" -eq 0 ]; then
-            rm -rf dist
-            npm run build 2>&1 | tee -a build-output.txt
-            status=${PIPESTATUS[0]}
-          fi
-
-          if [ "$status" -ne 0 ]; then
-            {
-              echo "El build automático falló en el commit $GITHUB_SHA."
-              echo
-              echo '```text'
-              tail -c 50000 build-output.txt
-              echo
-              echo '```'
-            } > issue-body.md
-            gh issue create --title "Build failure: ${GITHUB_SHA:0:7}" --body-file issue-body.md
-            exit "$status"
-          fi
-
+          rm -rf dist
+          npm run build
           printf '%s\n' "$GITHUB_SHA" > dist/version.txt
 
       - name: Setup Pages
@@ -64,11 +43,6 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
-
-      - name: Report build success
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh issue create --title "Pages diagnostic BUILD success: ${GITHUB_SHA:0:7}" --body "Build, configuración de Pages y carga del artefacto completados para $GITHUB_SHA."
 
   deploy:
     environment:
@@ -81,15 +55,4 @@ jobs:
     steps:
       - name: Deploy
         id: deployment
-        continue-on-error: true
         uses: actions/deploy-pages@v4
-
-      - name: Report deployment result
-        if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-          DEPLOY_OUTCOME: ${{ steps.deployment.outcome }}
-          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
-        run: |
-          gh issue create --title "Pages diagnostic DEPLOY ${DEPLOY_OUTCOME}: ${GITHUB_SHA:0:7}" --body "Resultado del despliegue: ${DEPLOY_OUTCOME}. URL informada: ${PAGE_URL:-sin URL}. Commit: $GITHUB_SHA."
-          test "$DEPLOY_OUTCOME" = "success"
