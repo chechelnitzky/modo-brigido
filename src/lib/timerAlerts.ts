@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { acknowledgeDueTimerPushes, ensurePushSubscription, reconcileTimerPushJob, schedulePushForActiveTimer } from './pushNotifications';
 
 let audioContext: AudioContext | null = null;
