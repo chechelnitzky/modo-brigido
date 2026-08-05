@@ -4,6 +4,12 @@ import { getSupabase } from './supabase';
 const CURRENT_JOB_KEY = 'modo-brigido-current-push-job';
 const VAPID_PUBLIC_KEY = 'BHd7QItp7kI1of4vXLlexXtPU2GMKI5uhPnnjWClsOgVBA3utDHRtK42x8CQy6nYlHQEKZFDOcxqrx5MIFEcHr0';
 
+type TimerPushSchedule = {
+  endAt: number;
+  sessionId?: string;
+  routineName?: string;
+};
+
 function urlBase64ToArrayBuffer(base64String: string): ArrayBuffer {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -52,29 +58,57 @@ function findRunningTimer(): { endAt: number; sessionId?: string } | null {
   return candidate;
 }
 
-export async function schedulePushForActiveTimer(routineName?: string): Promise<void> {
-  if (!navigator.onLine || Notification.permission !== 'granted') return;
-  await ensurePushSubscription();
-  await new Promise((resolve) => window.setTimeout(resolve, 220));
-  const timer = findRunningTimer();
-  if (!timer) return;
+async function cancelActiveJobsForUser(userId: string): Promise<void> {
+  const supabase = getSupabase();
+  const now = new Date().toISOString();
+  await supabase.from('timer_push_jobs').update({
+    status: 'cancelled',
+    cancelled_at: now,
+    updated_at: now
+  })
+    .eq('user_id', userId)
+    .is('acknowledged_at', null)
+    .is('cancelled_at', null)
+    .in('status', ['pending', 'sending']);
+}
+
+export async function cancelCurrentTimerPush(): Promise<void> {
+  localStorage.removeItem(CURRENT_JOB_KEY);
+  if (!navigator.onLine) return;
   const supabase = getSupabase();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return;
-  const previousJobId = localStorage.getItem(CURRENT_JOB_KEY);
-  if (previousJobId) {
-    await supabase.from('timer_push_jobs').update({ status: 'cancelled', cancelled_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', previousJobId).eq('user_id', user.id);
-  }
-  const dueAt = new Date(timer.endAt).toISOString();
+  await cancelActiveJobsForUser(user.id);
+}
+
+export async function schedulePushForTimer({ endAt, sessionId, routineName }: TimerPushSchedule): Promise<void> {
+  if (!navigator.onLine || Notification.permission !== 'granted' || endAt <= Date.now()) return;
+  const subscribed = await ensurePushSubscription();
+  if (!subscribed) return;
+
+  const supabase = getSupabase();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+
+  await cancelActiveJobsForUser(user.id);
+  localStorage.removeItem(CURRENT_JOB_KEY);
+
+  const dueAt = new Date(endAt).toISOString();
   const { data, error } = await supabase.from('timer_push_jobs').insert({
     user_id: user.id,
-    workout_session_id: timer.sessionId && timer.sessionId !== 'unknown' ? timer.sessionId : null,
+    workout_session_id: sessionId && sessionId !== 'unknown' ? sessionId : null,
     due_at: dueAt,
     next_attempt_at: dueAt,
     title: '¡Descanso terminado!',
     body: routineName ? `${routineName}: vuelve ahora para la siguiente serie.` : 'Vuelve ahora para la siguiente serie.'
   }).select('id').single();
-  if (!error && data?.id) localStorage.setItem(CURRENT_JOB_KEY, data.id);
+
+  if (error || !data?.id) return;
+  localStorage.setItem(CURRENT_JOB_KEY, data.id);
+
+  // Esta función queda esperando en Supabase y envía el primer push justo al vencer.
+  // El cron de 10 segundos permanece únicamente como respaldo si la tarea directa falla.
+  await supabase.functions.invoke('schedule-timer-push', { body: { jobId: data.id } });
 }
 
 export async function reconcileTimerPushJob(): Promise<void> {
