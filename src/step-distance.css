@@ -1,0 +1,160 @@
+.form-grid > .step-distance-field {
+  grid-column: 1 / -1;
+}
+
+.step-distance-field {
+  min-width: 0;
+  padding: 15px;
+  border: 1px solid #2b3a31;
+  border-radius: 16px;
+  background: rgba(8, 15, 11, .58);
+}
+
+.step-distance-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 11px;
+}
+
+.step-distance-title > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #e7ede9;
+  font-weight: 700;
+}
+
+.step-distance-title > small {
+  max-width: 55%;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.3;
+  text-align: right;
+}
+
+.step-distance-inputs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px minmax(0, 1fr);
+  align-items: end;
+  gap: 9px;
+}
+
+.step-distance-inputs label {
+  min-width: 0;
+}
+
+.step-distance-inputs label > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.step-distance-link {
+  display: grid;
+  width: 34px;
+  height: 48px;
+  place-items: center;
+  color: var(--green);
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.step-distance-summary {
+  display: block;
+  margin-top: 10px;
+  color: #92a198;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.metric-subvalue {
+  display: block;
+  margin-top: 2px;
+  color: #9aa69f;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.step-calibration-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: stretch;
+  margin-top: 16px;
+}
+
+.step-calibration-summary {
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid #2c3c32;
+  border-radius: 15px;
+  background: #0d1510;
+}
+
+.step-calibration-summary > span {
+  color: var(--green);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.step-calibration-summary > strong {
+  color: #edf3ef;
+  font-size: 15px;
+}
+
+.step-calibration-summary > small {
+  margin-top: 3px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.step-calibration-reset {
+  margin-top: 12px;
+}
+
+@media (max-width: 700px) {
+  .step-distance-field {
+    padding: 13px;
+  }
+
+  .step-distance-title {
+    display: block;
+  }
+
+  .step-distance-title > small {
+    display: block;
+    max-width: none;
+    margin-top: 4px;
+    text-align: left;
+  }
+
+  .step-calibration-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 420px) {
+  .step-distance-inputs {
+    grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr);
+    gap: 5px;
+  }
+
+  .step-distance-link {
+    width: 24px;
+    font-size: 17px;
+  }
+
+  .step-distance-inputs label > span {
+    font-size: 11px;
+  }
+}
