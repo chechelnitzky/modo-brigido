@@ -1,5 +1,11 @@
 // @ts-nocheck
-import { acknowledgeDueTimerPushes, ensurePushSubscription, reconcileTimerPushJob, schedulePushForActiveTimer } from './pushNotifications';
+import {
+  acknowledgeDueTimerPushes,
+  cancelCurrentTimerPush,
+  ensurePushSubscription,
+  reconcileTimerPushJob,
+  schedulePushForTimer
+} from './pushNotifications';
 
 let audioContext: AudioContext | null = null;
 let lifecycleStarted = false;
@@ -8,6 +14,7 @@ let reconcileInterval: number | null = null;
 const AGGRESSIVE_VIBRATION = [450, 110, 450, 110, 850, 160, 450, 110, 450, 110, 1100];
 
 export type TimerNotificationPermission = NotificationPermission | 'unsupported';
+export type TimerAlertSchedule = { endAt: number; sessionId?: string; routineName?: string };
 
 function getAudioContext(): AudioContext | null {
   if (typeof window === 'undefined') return null;
@@ -46,14 +53,19 @@ export function getTimerNotificationPermission(): TimerNotificationPermission {
   return Notification.permission;
 }
 
-export async function prepareTimerAlerts(): Promise<void> {
+export async function prepareTimerAlerts(schedule?: TimerAlertSchedule): Promise<void> {
   const context = getAudioContext();
   if (context?.state === 'suspended') await context.resume();
-  window.setTimeout(() => { void schedulePushForActiveTimer(); }, 320);
+  if (schedule) await schedulePushForTimer(schedule);
+}
+
+export async function cancelScheduledTimerAlert(): Promise<void> {
+  await cancelCurrentTimerPush();
 }
 
 export async function requestTimerNotificationPermission(): Promise<TimerNotificationPermission> {
-  await prepareTimerAlerts();
+  const context = getAudioContext();
+  if (context?.state === 'suspended') await context.resume();
   if (!('Notification' in window)) return 'unsupported';
   const permission = Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission;
   if (permission === 'granted') await ensurePushSubscription();
@@ -99,7 +111,7 @@ export async function triggerTimerFinishedAlert(): Promise<void> {
     return;
   }
   // El push del servidor es la vía principal cuando la app está cerrada o la pantalla apagada.
-  // Este fallback solo ayuda si Android todavía mantiene viva la PWA.
+  // Este fallback ayuda si Android todavía mantiene viva la PWA.
   playAlarmSequence();
   if ('vibrate' in navigator) navigator.vibrate(AGGRESSIVE_VIBRATION);
 }
