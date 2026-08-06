@@ -30,3 +30,13 @@ export function shortDate(date: string): string {
     month: '2-digit'
   }).format(new Date(`${date}T12:00:00`));
 }
+
+export function completedWorkoutDate(date: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!match) return date;
+
+  const [, year, month, day] = match;
+  const localDate = new Date(Number(year), Number(month) - 1, Number(day), 12);
+  const weekday = new Intl.DateTimeFormat('es-CL', { weekday: 'long' }).format(localDate);
+  return `${weekday}, ${day}/${month}/${year}`;
+}
