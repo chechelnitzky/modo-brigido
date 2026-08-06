@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedDate } from '../context/SelectedDateContext';
-import { prettyDate } from '../lib/date';
+import { completedWorkoutDate, prettyDate } from '../lib/date';
 import { cacheKeys, cacheSessionSummary, getCached, queueMutation, saveMutation, setCached, syncPendingMutations } from '../lib/offline';
 import { getSupabase } from '../lib/supabase';
 
@@ -198,7 +198,7 @@ export function WorkoutsPageV2() {
         <div className="routine-card-top"><div className="metric-icon"><Dumbbell /></div><div><span>Día {index + 1}</span><h2>{routine.name}</h2></div>{isFinished ? <span className="status-chip green"><CheckCircle2 size={14} /> Hecha</span> : lockedByAnotherDay ? <span className="status-chip weekly-lock"><LockKeyhole size={14} /> Hecha esta semana</span> : isInProgress ? <span className="status-chip orange">En curso</span> : <span className="status-chip">Disponible</span>}</div>
         <ol>{routine.routine_exercises.map((item) => <li key={item.id}><span>{item.exercise.name}</span><small>{item.target_sets} × {item.rep_min}–{item.rep_max} · RIR {item.rir_target}</small></li>)}</ol>
         {!routine.routine_exercises.length && <div className="alert error">Agrega al menos un ejercicio desde “Editar programa”.</div>}
-        {assignedSession ? <p className="last-session"><CalendarDays size={15} /> Asignada a: {assignedSession.session_date}</p> : completedThisWeek ? <p className="last-session"><LockKeyhole size={15} /> Completada esta semana: {completedThisWeek.session_date}</p> : null}
+        {assignedSession ? <p className="last-session"><CalendarDays size={15} /> Asignada a: {completedWorkoutDate(assignedSession.session_date)}</p> : completedThisWeek ? <p className="last-session"><LockKeyhole size={15} /> Completada esta semana: {completedWorkoutDate(completedThisWeek.session_date)}</p> : null}
         <div className="routine-action-row">
           <button className="primary-button" onClick={() => isInProgress ? navigate(`/sesion/${assignedSession.id}`) : startRoutine(routine)} disabled={starting === routine.id || !routine.routine_exercises.length || isWeeklyLocked}><Play size={17} /> {starting === routine.id ? 'Preparando…' : isInProgress ? 'Continuar rutina' : isFinished ? 'Rutina completada' : lockedByAnotherDay ? 'Hecha esta semana' : 'Iniciar rutina'} <ChevronRight size={17} /></button>
           {isFinished && <button className="secondary-button routine-unmark" onClick={() => unmarkRoutine(assignedSession)} disabled={updatingSession === assignedSession.id}><RotateCcw size={16} /> {updatingSession === assignedSession.id ? 'Desmarcando…' : 'Desmarcar rutina'}</button>}
