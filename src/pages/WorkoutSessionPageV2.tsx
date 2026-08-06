@@ -18,6 +18,7 @@ import type { Exercise } from '../types';
 
 const REST_SECONDS = 120;
 type TimerState = { remaining: number; endAt: number | null; running: boolean; finished: boolean };
+type LastExerciseWeights = Record<string, number>;
 
 function formatTimer(seconds: number) {
   const safe = Math.max(0, seconds);
@@ -72,6 +73,52 @@ function mergeSessionData(remote: any, cached: any) {
   return normalizeSessionData({ ...c, ...r, workout_exercises: merged });
 }
 
+function sessionExerciseIds(nextSession: any): number[] {
+  const exerciseIds = (nextSession?.workout_exercises ?? [])
+    .map((exercise: any) => Number(exercise.exercise_id))
+    .filter((exerciseId: number) => Number.isFinite(exerciseId)) as number[];
+  return [...new Set<number>(exerciseIds)];
+}
+
+function weightsForSession(nextSession: any, source: LastExerciseWeights): LastExerciseWeights {
+  return Object.fromEntries(sessionExerciseIds(nextSession).map((exerciseId) => [String(exerciseId), source[String(exerciseId)] ?? 0]));
+}
+
+function lastCompletedWeight(workoutSets: any[]): number {
+  const completedSets = [...(workoutSets ?? [])]
+    .filter((set: any) => set.completed)
+    .sort((a: any, b: any) => Number(a.set_number) - Number(b.set_number));
+
+  for (let index = completedSets.length - 1; index >= 0; index -= 1) {
+    const rawWeight = completedSets[index].weight_kg;
+    if (rawWeight === null || rawWeight === '') continue;
+    const weight = Number(rawWeight);
+    if (Number.isFinite(weight) && weight >= 0) return weight;
+  }
+  return 0;
+}
+
+function calculateLastExerciseWeights(rows: any[], exerciseIds: number[]): LastExerciseWeights {
+  const result: LastExerciseWeights = Object.fromEntries(exerciseIds.map((exerciseId) => [String(exerciseId), 0]));
+  const unresolved = new Set(exerciseIds.map(String));
+
+  for (const workoutSession of rows) {
+    for (const workoutExercise of workoutSession.workout_exercises ?? []) {
+      const key = String(workoutExercise.exercise_id);
+      if (!unresolved.has(key)) continue;
+      result[key] = lastCompletedWeight(workoutExercise.workout_sets ?? []);
+      unresolved.delete(key);
+    }
+    if (!unresolved.size) break;
+  }
+
+  return result;
+}
+
+function formatWeightKg(weight: number): string {
+  return new Intl.NumberFormat('es-CL', { maximumFractionDigits: 2 }).format(Number.isFinite(weight) ? weight : 0);
+}
+
 export function WorkoutSessionPageV2() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -84,6 +131,8 @@ export function WorkoutSessionPageV2() {
   const [search, setSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [lastExerciseWeights, setLastExerciseWeights] = useState<LastExerciseWeights>({});
+  const [lastWeightsLoading, setLastWeightsLoading] = useState(true);
   const [notificationPermission, setNotificationPermission] = useState<TimerNotificationPermission>(getTimerNotificationPermission());
   const [timer, setTimer] = useState<TimerState>({ remaining: REST_SECONDS, endAt: null, running: false, finished: false });
   const timerStorageKey = `modo-brigido-rest-timer:${id ?? 'unknown'}`;
@@ -119,12 +168,50 @@ export function WorkoutSessionPageV2() {
     return repaired;
   };
 
+  const loadLastExerciseWeights = async (nextSession: any, cachedWeights: LastExerciseWeights = {}) => {
+    const exerciseIds = sessionExerciseIds(nextSession);
+    setLastExerciseWeights(weightsForSession(nextSession, cachedWeights));
+    if (!user || !id || !exerciseIds.length || !navigator.onLine) {
+      setLastWeightsLoading(false);
+      return;
+    }
+
+    setLastWeightsLoading(true);
+    const { data, error: historyError } = await supabase
+      .from('workout_sessions')
+      .select(`id,finished_at,workout_exercises(exercise_id,workout_sets(set_number,weight_kg,completed))`)
+      .eq('user_id', user.id)
+      .not('finished_at', 'is', null)
+      .neq('id', id)
+      .order('finished_at', { ascending: false });
+
+    if (historyError) {
+      setLastWeightsLoading(false);
+      return;
+    }
+
+    const nextWeights = calculateLastExerciseWeights(data ?? [], exerciseIds);
+    const mergedWeights = { ...cachedWeights, ...nextWeights };
+    setLastExerciseWeights(nextWeights);
+    await setCached(`last-exercise-weights:${user.id}`, mergedWeights);
+    setLastWeightsLoading(false);
+  };
+
   const load = async () => {
     if (!id) return;
     setError('');
-    const cached = await getCached<any>(cacheKeys.workoutSession(id));
-    if (cached) setSession(normalizeSessionData(cached));
+    setLastWeightsLoading(true);
+    const [cached, cachedWeights] = await Promise.all([
+      getCached<any>(cacheKeys.workoutSession(id)),
+      user ? getCached<LastExerciseWeights>(`last-exercise-weights:${user.id}`) : Promise.resolve(null)
+    ]);
+    let nextSession = cached ? normalizeSessionData(cached) : null;
+    if (nextSession) {
+      setSession(nextSession);
+      setLastExerciseWeights(weightsForSession(nextSession, cachedWeights ?? {}));
+    }
     if (!navigator.onLine) {
+      setLastWeightsLoading(false);
       if (!cached) setError('Esta sesión no está guardada en este dispositivo.');
       return;
     }
@@ -136,16 +223,21 @@ export function WorkoutSessionPageV2() {
       .single();
     if (loadError) {
       if (!cached) setError(loadError.message);
+      if (nextSession) await loadLastExerciseWeights(nextSession, cachedWeights ?? {});
+      else setLastWeightsLoading(false);
       return;
     }
     if (data) {
-      const next = await repairMissingSets(mergeSessionData(data, cached));
-      setSession(next);
-      await cacheCurrentSession(next);
+      nextSession = await repairMissingSets(mergeSessionData(data, cached));
+      setSession(nextSession);
+      await cacheCurrentSession(nextSession);
+      await loadLastExerciseWeights(nextSession, cachedWeights ?? {});
+    } else {
+      setLastWeightsLoading(false);
     }
   };
 
-  useEffect(() => { void load(); }, [id]);
+  useEffect(() => { void load(); }, [id, user?.id]);
 
   useEffect(() => {
     const saved = localStorage.getItem(timerStorageKey);
@@ -328,27 +420,38 @@ export function WorkoutSessionPageV2() {
   };
 
   const replaceExercise = async (exercise: Exercise, permanent: boolean) => {
-    if (!replaceTarget || !user) return;
+    if (!replaceTarget || !user || !session) return;
     setSaving(true);
     const plannedId = replaceTarget.planned_routine_exercise_id;
-    setSession((current: any) => {
-      const next = {
-        ...current,
-        workout_exercises: current.workout_exercises.map((item: any) => item.id === replaceTarget.id
-          ? { ...item, exercise_id: exercise.id, exercise }
-          : item)
-      };
-      void cacheCurrentSession(next);
-      return next;
-    });
+    const nextSession = {
+      ...session,
+      workout_exercises: session.workout_exercises.map((item: any) => item.id === replaceTarget.id
+        ? { ...item, exercise_id: exercise.id, exercise }
+        : item)
+    };
+    setSession(nextSession);
+    await cacheCurrentSession(nextSession);
     await saveMutation({ operation: 'update', table: 'workout_exercises', payload: { exercise_id: exercise.id }, match: { id: replaceTarget.id }, dedupeKey: `replace-session:${replaceTarget.id}` });
     if (permanent && plannedId) {
       await updateCachedRoutineExercise(user.id, plannedId, exercise);
       await saveMutation({ operation: 'update', table: 'routine_exercises', payload: { exercise_id: exercise.id, updated_at: new Date().toISOString() }, match: { id: plannedId }, dedupeKey: `replace-routine:${plannedId}` });
     }
+    const cachedWeights = await getCached<LastExerciseWeights>(`last-exercise-weights:${user.id}`);
+    await loadLastExerciseWeights(nextSession, cachedWeights ?? {});
     setReplaceTarget(null);
     setSearch('');
     setSaving(false);
+  };
+
+  const cacheFinishedExerciseWeights = async (nextSession: any) => {
+    if (!user) return;
+    const cacheKey = `last-exercise-weights:${user.id}`;
+    const cachedWeights = await getCached<LastExerciseWeights>(cacheKey) ?? {};
+    const updates: LastExerciseWeights = {};
+    for (const exercise of nextSession.workout_exercises ?? []) {
+      updates[String(exercise.exercise_id)] = lastCompletedWeight(exercise.workout_sets ?? []);
+    }
+    await setCached(cacheKey, { ...cachedWeights, ...updates });
   };
 
   const finish = async () => {
@@ -358,7 +461,8 @@ export function WorkoutSessionPageV2() {
     setSession(next);
     await Promise.all([
       cacheCurrentSession(next),
-      cacheSessionSummary(user.id, { id, routine_id: session.routine_id, session_date: session.session_date, started_at: session.started_at, finished_at: finishedAt })
+      cacheSessionSummary(user.id, { id, routine_id: session.routine_id, session_date: session.session_date, started_at: session.started_at, finished_at: finishedAt }),
+      cacheFinishedExerciseWeights(next)
     ]);
     await saveMutation({ operation: 'update', table: 'workout_sessions', payload: { finished_at: finishedAt, updated_at: finishedAt }, match: { id }, dedupeKey: `finish-session:${id}` });
     localStorage.removeItem(timerStorageKey);
@@ -400,11 +504,12 @@ export function WorkoutSessionPageV2() {
       <section className="exercise-stack">
         {session.workout_exercises.map((exercise: any) => {
           const exerciseCompleted = exercise.workout_sets.length > 0 && exercise.workout_sets.every((set: any) => set.completed);
+          const previousWeight = lastExerciseWeights[String(exercise.exercise_id)] ?? 0;
           return (
             <article className={exerciseCompleted ? 'panel exercise-panel exercise-completed' : 'panel exercise-panel'} key={exercise.id}>
               <div className="exercise-title">
                 <div className="metric-icon"><Dumbbell /></div>
-                <div><span>{exercise.exercise?.primary_muscle} · {exercise.exercise?.equipment}</span><h2>{exercise.exercise?.name || 'Ejercicio'}</h2><small>Objetivo: {exercise.planned?.target_sets ?? exercise.workout_sets.length} × {exercise.planned?.rep_min ?? 8}–{exercise.planned?.rep_max ?? 12} · RIR {exercise.planned?.rir_target ?? 2}</small></div>
+                <div><span>{exercise.exercise?.primary_muscle} · {exercise.exercise?.equipment}</span><h2>{exercise.exercise?.name || 'Ejercicio'}</h2><small>Objetivo: {exercise.planned?.target_sets ?? exercise.workout_sets.length} × {exercise.planned?.rep_min ?? 8}–{exercise.planned?.rep_max ?? 12} · RIR {exercise.planned?.rir_target ?? 2}</small><small style={{ display: 'block', marginTop: 4 }}>Última vez: {lastWeightsLoading ? '…' : `${formatWeightKg(previousWeight)} kg`}</small></div>
                 <div className="exercise-actions">
                   <button className={exerciseCompleted ? 'secondary-button compact exercise-toggle active' : 'secondary-button compact exercise-toggle'} onClick={() => toggleExerciseComplete(exercise)}>{exerciseCompleted ? <RotateCcw size={15} /> : <CheckCircle2 size={15} />} {exerciseCompleted ? 'Desmarcar ejercicio' : 'Marcar ejercicio hecho'}</button>
                   <button className="secondary-button compact" onClick={() => loadLibrary(exercise)}><RefreshCw size={15} /> Cambiar</button>
