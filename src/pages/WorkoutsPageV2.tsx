@@ -57,6 +57,30 @@ function mergeSessionSummaries(base: any[], localDrafts: any[]) {
   return [...byId.values()].sort((a, b) => String(b.started_at ?? '').localeCompare(String(a.started_at ?? '')));
 }
 
+function workoutProgressScore(session: any): number {
+  if (!session) return -1;
+  let score = 0;
+  for (const exercise of session.workout_exercises ?? []) {
+    for (const set of exercise.workout_sets ?? []) {
+      if (set.completed) score += 20;
+      if (set.weight_kg !== null && set.weight_kg !== undefined && set.weight_kg !== '') score += 5;
+      if (set.reps !== null && set.reps !== undefined && set.reps !== '') score += 5;
+      if (set.rir !== null && set.rir !== undefined && set.rir !== '') score += 2;
+    }
+  }
+  return score;
+}
+
+function chooseBestDraft(drafts: any[]): any | null {
+  const active = drafts.filter((draft) => draft && !draft.finished_at);
+  if (!active.length) return null;
+  return [...active].sort((a, b) => {
+    const scoreDifference = workoutProgressScore(b) - workoutProgressScore(a);
+    if (scoreDifference !== 0) return scoreDifference;
+    return String(a.started_at ?? '').localeCompare(String(b.started_at ?? ''));
+  })[0] ?? null;
+}
+
 export function WorkoutsPageV2() {
   const supabase = getSupabase();
   const navigate = useNavigate();
@@ -188,8 +212,11 @@ export function WorkoutsPageV2() {
     if (!user || !profile) return;
     if (weekSessions.some((session) => session.routine_id === routine.id && session.finished_at)) return;
 
-    const existingSession = sessions.find((session) => session.routine_id === routine.id && session.session_date === selectedDate && !session.finished_at)
-      ?? readPermanentDrafts().find((draft) => draft.routine_id === routine.id && draft.session_date === selectedDate && !draft.finished_at);
+    const existingDraft = chooseBestDraft(readPermanentDrafts().filter((draft) => draft.routine_id === routine.id && draft.session_date === selectedDate));
+    const existingSummary = sessions
+      .filter((session) => session.routine_id === routine.id && session.session_date === selectedDate && !session.finished_at)
+      .sort((a, b) => String(a.started_at ?? '').localeCompare(String(b.started_at ?? '')))[0];
+    const existingSession = existingDraft ?? existingSummary;
     if (existingSession?.id) {
       navigate(`/sesion/${existingSession.id}`);
       return;
@@ -265,7 +292,13 @@ export function WorkoutsPageV2() {
     {error && <div className="alert error">{error}</div>}
 
     <section className="routine-grid">{routines.map((routine, index) => {
-      const assignedSession = sessions.find((session) => session.routine_id === routine.id);
+      const routineSessions = sessions.filter((session) => session.routine_id === routine.id);
+      const activeCandidates = routineSessions.filter((session) => !session.finished_at).sort((a, b) => {
+        const scoreDifference = workoutProgressScore(activeSessions[b.id]) - workoutProgressScore(activeSessions[a.id]);
+        if (scoreDifference !== 0) return scoreDifference;
+        return String(a.started_at ?? '').localeCompare(String(b.started_at ?? ''));
+      });
+      const assignedSession = activeCandidates[0] ?? routineSessions.find((session) => session.finished_at);
       const completedThisWeek = weekSessions.find((session) => session.routine_id === routine.id && session.finished_at);
       const isFinished = Boolean(assignedSession?.finished_at);
       const isInProgress = Boolean(assignedSession && !assignedSession.finished_at);
