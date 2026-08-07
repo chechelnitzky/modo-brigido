@@ -20,6 +20,8 @@ import type { Exercise } from '../types';
 const REST_SECONDS = 120;
 type TimerState = { remaining: number; endAt: number | null; running: boolean; finished: boolean };
 type LastExerciseWeights = Record<string, number>;
+type ExerciseHistoryMetric = { lastWeight: number; prWeight: number; prReps: number; estimatedOneRepMax: number };
+type ExerciseHistoryMetrics = Record<string, ExerciseHistoryMetric>;
 type StoredSessionDraft = { updatedAt: number; session: any };
 type StoredSetDraft = { updatedAt: number; set: any };
 
@@ -97,6 +99,17 @@ function weightsForSession(nextSession: any, source: LastExerciseWeights): LastE
   return Object.fromEntries(sessionExerciseIds(nextSession).map((exerciseId) => [String(exerciseId), source[String(exerciseId)] ?? 0]));
 }
 
+function emptyHistoryMetric(lastWeight = 0): ExerciseHistoryMetric {
+  return { lastWeight, prWeight: 0, prReps: 0, estimatedOneRepMax: 0 };
+}
+
+function historyForSession(nextSession: any, source: ExerciseHistoryMetrics, fallbackWeights: LastExerciseWeights = {}): ExerciseHistoryMetrics {
+  return Object.fromEntries(sessionExerciseIds(nextSession).map((exerciseId) => {
+    const key = String(exerciseId);
+    return [key, source[key] ?? emptyHistoryMetric(fallbackWeights[key] ?? 0)];
+  }));
+}
+
 function lastCompletedWeight(workoutSets: any[]): number {
   const completedSets = [...(workoutSets ?? [])]
     .filter((set: any) => set.completed)
@@ -111,18 +124,41 @@ function lastCompletedWeight(workoutSets: any[]): number {
   return 0;
 }
 
-function calculateLastExerciseWeights(rows: any[], exerciseIds: number[]): LastExerciseWeights {
-  const result: LastExerciseWeights = Object.fromEntries(exerciseIds.map((exerciseId) => [String(exerciseId), 0]));
-  const unresolved = new Set(exerciseIds.map(String));
+function bestSetMetric(workoutSets: any[]): ExerciseHistoryMetric {
+  let best = emptyHistoryMetric();
+  for (const set of workoutSets ?? []) {
+    const weight = Number(set.weight_kg);
+    const reps = Number(set.reps);
+    if (!set.completed || !Number.isFinite(weight) || !Number.isFinite(reps) || weight <= 0 || reps <= 0) continue;
+    const estimatedOneRepMax = weight * (1 + reps / 30);
+    if (estimatedOneRepMax > best.estimatedOneRepMax) {
+      best = { lastWeight: 0, prWeight: weight, prReps: reps, estimatedOneRepMax };
+    }
+  }
+  return best;
+}
+
+function calculateExerciseHistoryMetrics(rows: any[], exerciseIds: number[]): ExerciseHistoryMetrics {
+  const result: ExerciseHistoryMetrics = Object.fromEntries(exerciseIds.map((exerciseId) => [String(exerciseId), emptyHistoryMetric()]));
+  const lastWeightResolved = new Set<string>();
 
   for (const workoutSession of rows) {
     for (const workoutExercise of workoutSession.workout_exercises ?? []) {
       const key = String(workoutExercise.exercise_id);
-      if (!unresolved.has(key)) continue;
-      result[key] = lastCompletedWeight(workoutExercise.workout_sets ?? []);
-      unresolved.delete(key);
+      if (!(key in result)) continue;
+
+      if (!lastWeightResolved.has(key)) {
+        result[key].lastWeight = lastCompletedWeight(workoutExercise.workout_sets ?? []);
+        lastWeightResolved.add(key);
+      }
+
+      const candidate = bestSetMetric(workoutExercise.workout_sets ?? []);
+      if (candidate.estimatedOneRepMax > result[key].estimatedOneRepMax) {
+        result[key].prWeight = candidate.prWeight;
+        result[key].prReps = candidate.prReps;
+        result[key].estimatedOneRepMax = candidate.estimatedOneRepMax;
+      }
     }
-    if (!unresolved.size) break;
   }
 
   return result;
@@ -151,6 +187,7 @@ export function WorkoutSessionPageV2() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [lastExerciseWeights, setLastExerciseWeights] = useState<LastExerciseWeights>({});
+  const [exerciseHistoryMetrics, setExerciseHistoryMetrics] = useState<ExerciseHistoryMetrics>({});
   const [lastWeightsLoading, setLastWeightsLoading] = useState(true);
   const [notificationPermission, setNotificationPermission] = useState<TimerNotificationPermission>(getTimerNotificationPermission());
   const [timer, setTimer] = useState<TimerState>({ remaining: REST_SECONDS, endAt: null, running: false, finished: false });
@@ -315,9 +352,14 @@ export function WorkoutSessionPageV2() {
     return repaired;
   };
 
-  const loadLastExerciseWeights = async (nextSession: any, cachedWeights: LastExerciseWeights = {}) => {
+  const loadExerciseHistory = async (
+    nextSession: any,
+    cachedWeights: LastExerciseWeights = {},
+    cachedHistory: ExerciseHistoryMetrics = {}
+  ) => {
     const exerciseIds = sessionExerciseIds(nextSession);
     setLastExerciseWeights(weightsForSession(nextSession, cachedWeights));
+    setExerciseHistoryMetrics(historyForSession(nextSession, cachedHistory, cachedWeights));
     if (!user || !id || !exerciseIds.length || !navigator.onLine) {
       setLastWeightsLoading(false);
       return;
@@ -326,7 +368,7 @@ export function WorkoutSessionPageV2() {
     setLastWeightsLoading(true);
     const { data, error: historyError } = await supabase
       .from('workout_sessions')
-      .select(`id,finished_at,workout_exercises(exercise_id,workout_sets(set_number,weight_kg,completed))`)
+      .select(`id,finished_at,workout_exercises(exercise_id,workout_sets(set_number,weight_kg,reps,completed))`)
       .eq('user_id', user.id)
       .not('finished_at', 'is', null)
       .neq('id', id)
@@ -337,10 +379,16 @@ export function WorkoutSessionPageV2() {
       return;
     }
 
-    const nextWeights = calculateLastExerciseWeights(data ?? [], exerciseIds);
+    const nextHistory = calculateExerciseHistoryMetrics(data ?? [], exerciseIds);
+    const nextWeights: LastExerciseWeights = Object.fromEntries(Object.entries(nextHistory).map(([key, metric]) => [key, metric.lastWeight]));
     const mergedWeights = { ...cachedWeights, ...nextWeights };
+    const mergedHistory = { ...cachedHistory, ...nextHistory };
     setLastExerciseWeights(nextWeights);
-    await setCached(`last-exercise-weights:${user.id}`, mergedWeights);
+    setExerciseHistoryMetrics(nextHistory);
+    await Promise.all([
+      setCached(`last-exercise-weights:${user.id}`, mergedWeights),
+      setCached(`exercise-history-metrics:${user.id}`, mergedHistory)
+    ]);
     setLastWeightsLoading(false);
   };
 
@@ -348,9 +396,10 @@ export function WorkoutSessionPageV2() {
     if (!id) return;
     setError('');
     setLastWeightsLoading(true);
-    const [indexedSession, cachedWeights] = await Promise.all([
+    const [indexedSession, cachedWeights, cachedHistory] = await Promise.all([
       getCached<any>(cacheKeys.workoutSession(id)),
-      user ? getCached<LastExerciseWeights>(`last-exercise-weights:${user.id}`) : Promise.resolve(null)
+      user ? getCached<LastExerciseWeights>(`last-exercise-weights:${user.id}`) : Promise.resolve(null),
+      user ? getCached<ExerciseHistoryMetrics>(`exercise-history-metrics:${user.id}`) : Promise.resolve(null)
     ]);
     const draftSession = readSessionDraft();
     let nextSession = overlayPersistentSetValues(draftSession ?? (indexedSession ? normalizeSessionData(indexedSession) : null));
@@ -360,6 +409,7 @@ export function WorkoutSessionPageV2() {
       setSession(nextSession);
       persistSessionLocally(nextSession);
       setLastExerciseWeights(weightsForSession(nextSession, cachedWeights ?? {}));
+      setExerciseHistoryMetrics(historyForSession(nextSession, cachedHistory ?? {}, cachedWeights ?? {}));
     }
 
     if (!navigator.onLine) {
@@ -377,7 +427,7 @@ export function WorkoutSessionPageV2() {
 
     if (loadError) {
       if (!nextSession) setError(loadError.message);
-      if (nextSession) await loadLastExerciseWeights(nextSession, cachedWeights ?? {});
+      if (nextSession) await loadExerciseHistory(nextSession, cachedWeights ?? {}, cachedHistory ?? {});
       else setLastWeightsLoading(false);
       return;
     }
@@ -394,7 +444,7 @@ export function WorkoutSessionPageV2() {
       setSession(nextSession);
       persistSessionLocally(nextSession);
       if (draftSession && !nextSession.finished_at) enqueuePersistence(() => queueSessionSnapshot(nextSession));
-      await loadLastExerciseWeights(nextSession, cachedWeights ?? {});
+      await loadExerciseHistory(nextSession, cachedWeights ?? {}, cachedHistory ?? {});
     } else {
       setLastWeightsLoading(false);
     }
@@ -628,22 +678,46 @@ export function WorkoutSessionPageV2() {
       await updateCachedRoutineExercise(user.id, plannedId, exercise);
       await saveMutation({ operation: 'update', table: 'routine_exercises', payload: { exercise_id: exercise.id, updated_at: new Date().toISOString() }, match: { id: plannedId }, dedupeKey: `replace-routine:${plannedId}` });
     }
-    const cachedWeights = await getCached<LastExerciseWeights>(`last-exercise-weights:${user.id}`);
-    await loadLastExerciseWeights(nextSession, cachedWeights ?? {});
+    const [cachedWeights, cachedHistory] = await Promise.all([
+      getCached<LastExerciseWeights>(`last-exercise-weights:${user.id}`),
+      getCached<ExerciseHistoryMetrics>(`exercise-history-metrics:${user.id}`)
+    ]);
+    await loadExerciseHistory(nextSession, cachedWeights ?? {}, cachedHistory ?? {});
     setReplaceTarget(null);
     setSearch('');
     setSaving(false);
   };
 
-  const cacheFinishedExerciseWeights = async (nextSession: any) => {
+  const cacheFinishedExerciseHistory = async (nextSession: any) => {
     if (!user) return;
-    const cacheKey = `last-exercise-weights:${user.id}`;
-    const cachedWeights = await getCached<LastExerciseWeights>(cacheKey) ?? {};
-    const updates: LastExerciseWeights = {};
+    const weightCacheKey = `last-exercise-weights:${user.id}`;
+    const historyCacheKey = `exercise-history-metrics:${user.id}`;
+    const [cachedWeights, cachedHistory] = await Promise.all([
+      getCached<LastExerciseWeights>(weightCacheKey),
+      getCached<ExerciseHistoryMetrics>(historyCacheKey)
+    ]);
+    const nextWeights: LastExerciseWeights = { ...(cachedWeights ?? {}) };
+    const nextHistory: ExerciseHistoryMetrics = { ...(cachedHistory ?? {}) };
+
     for (const exercise of nextSession.workout_exercises ?? []) {
-      updates[String(exercise.exercise_id)] = lastCompletedWeight(exercise.workout_sets ?? []);
+      const key = String(exercise.exercise_id);
+      const lastWeight = lastCompletedWeight(exercise.workout_sets ?? []);
+      const sessionBest = bestSetMetric(exercise.workout_sets ?? []);
+      const previous = nextHistory[key] ?? emptyHistoryMetric(nextWeights[key] ?? 0);
+      const best = sessionBest.estimatedOneRepMax > previous.estimatedOneRepMax ? sessionBest : previous;
+      nextWeights[key] = lastWeight;
+      nextHistory[key] = {
+        lastWeight,
+        prWeight: best.prWeight,
+        prReps: best.prReps,
+        estimatedOneRepMax: best.estimatedOneRepMax
+      };
     }
-    await setCached(cacheKey, { ...cachedWeights, ...updates });
+
+    await Promise.all([
+      setCached(weightCacheKey, nextWeights),
+      setCached(historyCacheKey, nextHistory)
+    ]);
   };
 
   const finish = async () => {
@@ -656,7 +730,7 @@ export function WorkoutSessionPageV2() {
     await persistenceChainRef.current.catch(() => undefined);
     await Promise.all([
       cacheSessionSummary(user.id, { id, routine_id: current.routine_id, session_date: current.session_date, started_at: current.started_at, finished_at: finishedAt }),
-      cacheFinishedExerciseWeights(next),
+      cacheFinishedExerciseHistory(next),
       queueSessionSnapshot(next)
     ]);
     await saveMutation({ operation: 'update', table: 'workout_sessions', payload: { finished_at: finishedAt, updated_at: finishedAt }, match: { id }, dedupeKey: `finish-session:${id}` });
@@ -700,12 +774,19 @@ export function WorkoutSessionPageV2() {
       <section className="exercise-stack">
         {session.workout_exercises.map((exercise: any) => {
           const exerciseCompleted = exercise.workout_sets.length > 0 && exercise.workout_sets.every((set: any) => set.completed);
-          const previousWeight = lastExerciseWeights[String(exercise.exercise_id)] ?? 0;
+          const history = exerciseHistoryMetrics[String(exercise.exercise_id)] ?? emptyHistoryMetric(lastExerciseWeights[String(exercise.exercise_id)] ?? 0);
           return (
             <article className={exerciseCompleted ? 'panel exercise-panel exercise-completed' : 'panel exercise-panel'} key={exercise.id}>
               <div className="exercise-title">
                 <div className="metric-icon"><Dumbbell /></div>
-                <div><span>{exercise.exercise?.primary_muscle} · {exercise.exercise?.equipment}</span><h2>{exercise.exercise?.name || 'Ejercicio'}</h2><small>Objetivo: {exercise.planned?.target_sets ?? exercise.workout_sets.length} × {exercise.planned?.rep_min ?? 8}–{exercise.planned?.rep_max ?? 12} · RIR {exercise.planned?.rir_target ?? 2}</small><small style={{ display: 'block', marginTop: 4 }}>Última vez: {lastWeightsLoading ? '…' : `${formatWeightKg(previousWeight)} kg`}</small></div>
+                <div>
+                  <span>{exercise.exercise?.primary_muscle} · {exercise.exercise?.equipment}</span>
+                  <h2>{exercise.exercise?.name || 'Ejercicio'}</h2>
+                  <small>Objetivo: {exercise.planned?.target_sets ?? exercise.workout_sets.length} × {exercise.planned?.rep_min ?? 8}–{exercise.planned?.rep_max ?? 12} · RIR {exercise.planned?.rir_target ?? 2}</small>
+                  <small style={{ display: 'block', marginTop: 4 }}>Última vez: {lastWeightsLoading ? '…' : `${formatWeightKg(history.lastWeight)} kg`}</small>
+                  <small style={{ display: 'block', marginTop: 2 }}>PR: {lastWeightsLoading ? '…' : history.prWeight > 0 ? `${formatWeightKg(history.prWeight)} kg × ${history.prReps}` : '0 kg'}</small>
+                  <small style={{ display: 'block', marginTop: 2 }}>1RM estimado: {lastWeightsLoading ? '…' : `${formatWeightKg(history.estimatedOneRepMax)} kg`}</small>
+                </div>
                 <div className="exercise-actions">
                   <button className={exerciseCompleted ? 'secondary-button compact exercise-toggle active' : 'secondary-button compact exercise-toggle'} onClick={() => toggleExerciseComplete(exercise)}>{exerciseCompleted ? <RotateCcw size={15} /> : <CheckCircle2 size={15} />} {exerciseCompleted ? 'Desmarcar ejercicio' : 'Marcar ejercicio hecho'}</button>
                   <button className="secondary-button compact" onClick={() => loadLibrary(exercise)}><RefreshCw size={15} /> Cambiar</button>
