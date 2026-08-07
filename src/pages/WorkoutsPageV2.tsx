@@ -40,6 +40,23 @@ function calculatePersonalRecords(rows: any[]): PersonalRecord[] {
   return [...records.values()].sort((a, b) => b.estimatedOneRepMax - a.estimatedOneRepMax);
 }
 
+function sessionSummary(session: any) {
+  return {
+    id: session.id,
+    routine_id: session.routine_id,
+    session_date: session.session_date,
+    started_at: session.started_at,
+    finished_at: session.finished_at ?? null
+  };
+}
+
+function mergeSessionSummaries(base: any[], localDrafts: any[]) {
+  const byId = new Map<string, any>();
+  for (const item of base ?? []) if (item?.id) byId.set(item.id, item);
+  for (const draft of localDrafts ?? []) if (draft?.id) byId.set(draft.id, { ...(byId.get(draft.id) ?? {}), ...sessionSummary(draft) });
+  return [...byId.values()].sort((a, b) => String(b.started_at ?? '').localeCompare(String(a.started_at ?? '')));
+}
+
 export function WorkoutsPageV2() {
   const supabase = getSupabase();
   const navigate = useNavigate();
@@ -68,15 +85,29 @@ export function WorkoutsPageV2() {
     await setCached(weekSessionCacheKey, next);
   };
 
-  const readActiveSessionCopies = async (sessionList: any[]) => {
-    const entries = await Promise.all(sessionList.filter((session) => !session.finished_at).map(async (session) => {
-      let draft: any = null;
+  const readPermanentDrafts = () => {
+    const drafts: any[] = [];
+    if (!user) return drafts;
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (!key?.startsWith('modo-brigido-session-draft:')) continue;
       try {
-        const saved = localStorage.getItem(`modo-brigido-session-draft:${session.id}`);
-        draft = saved ? JSON.parse(saved)?.session ?? null : null;
+        const parsed = JSON.parse(localStorage.getItem(key) ?? '{}');
+        const draft = parsed?.session;
+        if (!draft?.id || !draft?.routine_id || !draft?.session_date) continue;
+        if (draft.user_id && draft.user_id !== user.id) continue;
+        drafts.push(draft);
       } catch {
-        draft = null;
+        // Un borrador dañado no debe impedir recuperar los demás.
       }
+    }
+    return drafts;
+  };
+
+  const readActiveSessionCopies = async (sessionList: any[], knownDrafts = readPermanentDrafts()) => {
+    const draftById = new Map(knownDrafts.map((draft) => [draft.id, draft]));
+    const entries = await Promise.all(sessionList.filter((session) => !session.finished_at).map(async (session) => {
+      const draft = draftById.get(session.id) ?? null;
       const cached = await getCached<any>(cacheKeys.workoutSession(session.id));
       return [session.id, draft ?? cached] as const;
     }));
@@ -87,6 +118,8 @@ export function WorkoutsPageV2() {
     if (!user) return;
     setLoading(true);
     setError('');
+    const permanentDrafts = readPermanentDrafts();
+    const draftsThisWeek = permanentDrafts.filter((draft) => draft.session_date >= weekRange.start && draft.session_date <= weekRange.end);
     const [cachedRoutines, cachedDateSessions, cachedWeekSessions, cachedAllSessions, cachedRecords] = await Promise.all([
       getCached<Routine[]>(cacheKeys.routines(user.id)),
       getCached<any[]>(sessionCacheKey),
@@ -94,9 +127,10 @@ export function WorkoutsPageV2() {
       getCached<any[]>(cacheKeys.sessions(user.id)),
       getCached<PersonalRecord[]>(`personal-records:${user.id}`)
     ]);
-    const fallbackWeekSessions = cachedWeekSessions ?? (cachedAllSessions ?? []).filter((session) => session.session_date >= weekRange.start && session.session_date <= weekRange.end);
-    const fallbackSessions = cachedDateSessions ?? fallbackWeekSessions.filter((session) => session.session_date === selectedDate);
-    const cachedActiveSessions = await readActiveSessionCopies(fallbackSessions);
+    const cachedWeekBase = cachedWeekSessions ?? (cachedAllSessions ?? []).filter((session) => session.session_date >= weekRange.start && session.session_date <= weekRange.end);
+    const fallbackWeekSessions = mergeSessionSummaries(cachedWeekBase, draftsThisWeek);
+    const fallbackSessions = mergeSessionSummaries(cachedDateSessions ?? fallbackWeekSessions.filter((session) => session.session_date === selectedDate), draftsThisWeek.filter((draft) => draft.session_date === selectedDate));
+    const cachedActiveSessions = await readActiveSessionCopies(fallbackSessions, permanentDrafts);
     if (cachedRoutines) setRoutines(cachedRoutines);
     setSessions(fallbackSessions);
     setWeekSessions(fallbackWeekSessions);
@@ -125,11 +159,12 @@ export function WorkoutsPageV2() {
 
     const remoteRoutines = ((routineResult.data ?? []) as unknown as Routine[]).map((routine) => ({ ...routine, routine_exercises: [...(routine.routine_exercises ?? [])].sort((a, b) => a.position - b.position) }));
     const nextRoutines = hasPendingChanges && cachedRoutines?.length ? cachedRoutines : remoteRoutines;
-    const nextWeekSessions = sessionResult.data ?? [];
+    const remoteWeekSessions = sessionResult.data ?? [];
+    const nextWeekSessions = mergeSessionSummaries(remoteWeekSessions, draftsThisWeek);
     const nextSessions = nextWeekSessions.filter((session) => session.session_date === selectedDate);
-    const localActiveSessions = await readActiveSessionCopies(nextSessions);
-    const remoteActiveSessions = Object.fromEntries(nextSessions
-      .filter((session) => !session.finished_at && session.workout_exercises?.length)
+    const localActiveSessions = await readActiveSessionCopies(nextSessions, permanentDrafts);
+    const remoteActiveSessions = Object.fromEntries(remoteWeekSessions
+      .filter((session) => session.session_date === selectedDate && !session.finished_at && session.workout_exercises?.length)
       .map((session) => [session.id, session]));
     const nextActiveSessions = { ...remoteActiveSessions, ...localActiveSessions };
     const nextRecords = calculatePersonalRecords(recordResult.data ?? []);
@@ -142,7 +177,8 @@ export function WorkoutsPageV2() {
       hasPendingChanges ? Promise.resolve() : setCached(cacheKeys.routines(user.id), remoteRoutines),
       setCached(sessionCacheKey, nextSessions),
       setCached(weekSessionCacheKey, nextWeekSessions),
-      setCached(`personal-records:${user.id}`, nextRecords)
+      setCached(`personal-records:${user.id}`, nextRecords),
+      ...draftsThisWeek.map((draft) => cacheSessionSummary(user.id, sessionSummary(draft)))
     ]);
   };
 
@@ -151,6 +187,14 @@ export function WorkoutsPageV2() {
   const startRoutine = async (routine: Routine) => {
     if (!user || !profile) return;
     if (weekSessions.some((session) => session.routine_id === routine.id && session.finished_at)) return;
+
+    const existingSession = sessions.find((session) => session.routine_id === routine.id && session.session_date === selectedDate && !session.finished_at)
+      ?? readPermanentDrafts().find((draft) => draft.routine_id === routine.id && draft.session_date === selectedDate && !draft.finished_at);
+    if (existingSession?.id) {
+      navigate(`/sesion/${existingSession.id}`);
+      return;
+    }
+
     setStarting(routine.id);
     setError('');
     const sessionId = crypto.randomUUID();
@@ -163,7 +207,12 @@ export function WorkoutsPageV2() {
       workout_sets: Array.from({ length: item.target_sets }, (_, index) => ({ id: crypto.randomUUID(), set_number: index + 1, weight_kg: null, reps: null, rir: null, completed: false }))
     }));
     const localSession = { id: sessionId, user_id: user.id, routine_id: routine.id, session_date: sessionDate, started_at: startedAt, finished_at: null, notes: null, routine: { name: routine.name }, workout_exercises: workoutExercises };
-    const summary = { id: sessionId, routine_id: routine.id, session_date: sessionDate, started_at: startedAt, finished_at: null };
+    const summary = sessionSummary(localSession);
+    try {
+      localStorage.setItem(`modo-brigido-session-draft:${sessionId}`, JSON.stringify({ updatedAt: Date.now(), session: localSession }));
+    } catch {
+      // IndexedDB y la cola de sincronización siguen siendo copias de respaldo.
+    }
     const nextDateSessions = [summary, ...sessions.filter((session) => session.id !== sessionId)];
     const nextWeekSessions = [summary, ...weekSessions.filter((session) => session.id !== sessionId)];
     await Promise.all([
