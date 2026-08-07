@@ -298,7 +298,8 @@ export function WorkoutsPageV2() {
         if (scoreDifference !== 0) return scoreDifference;
         return String(a.started_at ?? '').localeCompare(String(b.started_at ?? ''));
       });
-      const assignedSession = activeCandidates[0] ?? routineSessions.find((session) => session.finished_at);
+      const finishedCandidate = routineSessions.find((session) => session.finished_at);
+      const assignedSession = finishedCandidate ?? activeCandidates[0];
       const completedThisWeek = weekSessions.find((session) => session.routine_id === routine.id && session.finished_at);
       const isFinished = Boolean(assignedSession?.finished_at);
       const isInProgress = Boolean(assignedSession && !assignedSession.finished_at);
