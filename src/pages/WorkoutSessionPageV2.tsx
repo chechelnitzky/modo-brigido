@@ -19,6 +19,7 @@ import type { Exercise } from '../types';
 const REST_SECONDS = 120;
 type TimerState = { remaining: number; endAt: number | null; running: boolean; finished: boolean };
 type LastExerciseWeights = Record<string, number>;
+type StoredSessionDraft = { updatedAt: number; session: any };
 
 function formatTimer(seconds: number) {
   const safe = Math.max(0, seconds);
@@ -46,8 +47,9 @@ function normalizeSessionData(data: any) {
 }
 
 function mergeSessionData(remote: any, cached: any) {
-  const r = normalizeSessionData(remote);
+  const r = remote ? normalizeSessionData(remote) : null;
   const c = cached ? normalizeSessionData(cached) : null;
+  if (!r) return c;
   if (!c) return r;
   if (!r.workout_exercises.length && c.workout_exercises.length) return c;
 
@@ -55,22 +57,31 @@ function mergeSessionData(remote: any, cached: any) {
   const merged = r.workout_exercises.map((remoteExercise: any) => {
     const cachedExercise: any = cachedById.get(remoteExercise.id);
     if (!cachedExercise) return remoteExercise;
+
     const remoteSets = remoteExercise.workout_sets ?? [];
     const cachedSets = cachedExercise.workout_sets ?? [];
-    if (!remoteSets.length && cachedSets.length) return { ...remoteExercise, ...cachedExercise, workout_sets: cachedSets };
     const cachedSetsById = new Map(cachedSets.map((set: any) => [set.id, set]));
+    const mergedSets = remoteSets.map((remoteSet: any) => {
+      const cachedSet = cachedSetsById.get(remoteSet.id) as any;
+      return cachedSet ? { ...remoteSet, ...cachedSet } : remoteSet;
+    });
+    for (const cachedSet of cachedSets) {
+      if (!mergedSets.some((item: any) => item.id === cachedSet.id)) mergedSets.push(cachedSet);
+    }
+
     return {
-      ...cachedExercise,
       ...remoteExercise,
-      exercise: remoteExercise.exercise ?? cachedExercise.exercise,
-      planned: remoteExercise.planned ?? cachedExercise.planned,
-      workout_sets: remoteSets.map((set: any) => ({ ...((cachedSetsById.get(set.id) as any) ?? {}), ...set }))
+      ...cachedExercise,
+      exercise: cachedExercise.exercise ?? remoteExercise.exercise,
+      planned: cachedExercise.planned ?? remoteExercise.planned,
+      workout_sets: mergedSets
     };
   });
   for (const cachedExercise of c.workout_exercises) {
     if (!merged.some((item: any) => item.id === cachedExercise.id)) merged.push(cachedExercise);
   }
-  return normalizeSessionData({ ...c, ...r, workout_exercises: merged });
+
+  return normalizeSessionData({ ...r, ...c, workout_exercises: merged });
 }
 
 function sessionExerciseIds(nextSession: any): number[] {
@@ -119,6 +130,12 @@ function formatWeightKg(weight: number): string {
   return new Intl.NumberFormat('es-CL', { maximumFractionDigits: 2 }).format(Number.isFinite(weight) ? weight : 0);
 }
 
+function numberOrNull(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export function WorkoutSessionPageV2() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -136,10 +153,86 @@ export function WorkoutSessionPageV2() {
   const [notificationPermission, setNotificationPermission] = useState<TimerNotificationPermission>(getTimerNotificationPermission());
   const [timer, setTimer] = useState<TimerState>({ remaining: REST_SECONDS, endAt: null, running: false, finished: false });
   const timerStorageKey = `modo-brigido-rest-timer:${id ?? 'unknown'}`;
+  const sessionDraftKey = `modo-brigido-session-draft:${id ?? 'unknown'}`;
   const alertedEndAtRef = useRef<number | null>(null);
+  const sessionRef = useRef<any>(null);
+  const snapshotTimerRef = useRef<number | null>(null);
 
   const cacheCurrentSession = async (next: any) => {
     if (id) await setCached(cacheKeys.workoutSession(id), next);
+  };
+
+  const queueSessionSnapshot = async (nextSession: any) => {
+    if (!id || !nextSession) return;
+
+    const workoutExercises = (nextSession.workout_exercises ?? []).map((exercise: any) => ({
+      id: exercise.id,
+      session_id: id,
+      planned_routine_exercise_id: exercise.planned_routine_exercise_id ?? null,
+      exercise_id: Number(exercise.exercise_id),
+      position: Number(exercise.position)
+    }));
+    const workoutSets = (nextSession.workout_exercises ?? []).flatMap((exercise: any) =>
+      (exercise.workout_sets ?? []).map((set: any) => ({
+        id: set.id,
+        workout_exercise_id: exercise.id,
+        set_number: Number(set.set_number),
+        weight_kg: numberOrNull(set.weight_kg),
+        reps: numberOrNull(set.reps),
+        rir: numberOrNull(set.rir),
+        completed: Boolean(set.completed)
+      }))
+    );
+
+    if (workoutExercises.length) {
+      await queueMutation({
+        operation: 'upsert',
+        table: 'workout_exercises',
+        payload: workoutExercises,
+        dedupeKey: `session-exercises:${id}`
+      });
+    }
+    if (workoutSets.length) {
+      await queueMutation({
+        operation: 'upsert',
+        table: 'workout_sets',
+        payload: workoutSets,
+        dedupeKey: `session-sets:${id}`
+      });
+    }
+    if (navigator.onLine) await syncPendingMutations();
+  };
+
+  const scheduleSessionSnapshot = (nextSession: any) => {
+    if (snapshotTimerRef.current !== null) window.clearTimeout(snapshotTimerRef.current);
+    snapshotTimerRef.current = window.setTimeout(() => {
+      snapshotTimerRef.current = null;
+      void queueSessionSnapshot(nextSession);
+    }, 650);
+  };
+
+  const persistCurrentSession = (nextSession: any, scheduleSync = true) => {
+    sessionRef.current = nextSession;
+    try {
+      const draft: StoredSessionDraft = { updatedAt: Date.now(), session: nextSession };
+      localStorage.setItem(sessionDraftKey, JSON.stringify(draft));
+    } catch {
+      // IndexedDB remains as the secondary local copy if localStorage is unavailable.
+    }
+    void cacheCurrentSession(nextSession);
+    if (scheduleSync && !nextSession.finished_at) scheduleSessionSnapshot(nextSession);
+  };
+
+  const readSessionDraft = () => {
+    try {
+      const saved = localStorage.getItem(sessionDraftKey);
+      if (!saved) return null;
+      const parsed = JSON.parse(saved) as StoredSessionDraft;
+      return parsed?.session ? normalizeSessionData(parsed.session) : null;
+    } catch {
+      localStorage.removeItem(sessionDraftKey);
+      return null;
+    }
   };
 
   const repairMissingSets = async (nextSession: any) => {
@@ -201,20 +294,23 @@ export function WorkoutSessionPageV2() {
     if (!id) return;
     setError('');
     setLastWeightsLoading(true);
-    const [cached, cachedWeights] = await Promise.all([
+    const [indexedSession, cachedWeights] = await Promise.all([
       getCached<any>(cacheKeys.workoutSession(id)),
       user ? getCached<LastExerciseWeights>(`last-exercise-weights:${user.id}`) : Promise.resolve(null)
     ]);
-    let nextSession = cached ? normalizeSessionData(cached) : null;
+    const draftSession = readSessionDraft();
+    let nextSession = mergeSessionData(indexedSession, draftSession);
     if (nextSession) {
+      sessionRef.current = nextSession;
       setSession(nextSession);
       setLastExerciseWeights(weightsForSession(nextSession, cachedWeights ?? {}));
     }
     if (!navigator.onLine) {
       setLastWeightsLoading(false);
-      if (!cached) setError('Esta sesión no está guardada en este dispositivo.');
+      if (!nextSession) setError('Esta sesión no está guardada en este dispositivo.');
       return;
     }
+
     await syncPendingMutations();
     const { data, error: loadError } = await supabase
       .from('workout_sessions')
@@ -222,15 +318,16 @@ export function WorkoutSessionPageV2() {
       .eq('id', id)
       .single();
     if (loadError) {
-      if (!cached) setError(loadError.message);
+      if (!nextSession) setError(loadError.message);
       if (nextSession) await loadLastExerciseWeights(nextSession, cachedWeights ?? {});
       else setLastWeightsLoading(false);
       return;
     }
     if (data) {
-      nextSession = await repairMissingSets(mergeSessionData(data, cached));
+      nextSession = await repairMissingSets(mergeSessionData(data, nextSession));
       setSession(nextSession);
-      await cacheCurrentSession(nextSession);
+      persistCurrentSession(nextSession, false);
+      if (!nextSession.finished_at) await queueSessionSnapshot(nextSession);
       await loadLastExerciseWeights(nextSession, cachedWeights ?? {});
     } else {
       setLastWeightsLoading(false);
@@ -238,6 +335,30 @@ export function WorkoutSessionPageV2() {
   };
 
   useEffect(() => { void load(); }, [id, user?.id]);
+
+  useEffect(() => {
+    const flushDraft = () => {
+      const current = sessionRef.current;
+      if (!current || current.finished_at) return;
+      if (snapshotTimerRef.current !== null) {
+        window.clearTimeout(snapshotTimerRef.current);
+        snapshotTimerRef.current = null;
+      }
+      persistCurrentSession(current, false);
+      void queueSessionSnapshot(current);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') flushDraft();
+    };
+
+    window.addEventListener('pagehide', flushDraft);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('pagehide', flushDraft);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      flushDraft();
+    };
+  }, [id, user?.id]);
 
   useEffect(() => {
     const saved = localStorage.getItem(timerStorageKey);
@@ -341,20 +462,21 @@ export function WorkoutSessionPageV2() {
           ? { ...exercise, workout_sets: exercise.workout_sets.map((set: any) => set.id === setId ? { ...set, [field]: value === '' ? null : value } : set) }
           : exercise)
       };
-      void cacheCurrentSession(next);
+      persistCurrentSession(next);
       return next;
     });
   };
 
   const saveSet = async (set: any) => {
+    if (!set) return;
     setSaving(true);
     await saveMutation({
       operation: 'update',
       table: 'workout_sets',
       payload: {
-        weight_kg: set.weight_kg === null || set.weight_kg === '' ? null : Number(set.weight_kg),
-        reps: set.reps === null || set.reps === '' ? null : Number(set.reps),
-        rir: set.rir === null || set.rir === '' ? null : Number(set.rir),
+        weight_kg: numberOrNull(set.weight_kg),
+        reps: numberOrNull(set.reps),
+        rir: numberOrNull(set.rir),
         completed: Boolean(set.completed),
         updated_at: new Date().toISOString()
       },
@@ -387,7 +509,7 @@ export function WorkoutSessionPageV2() {
           ? { ...item, workout_sets: item.workout_sets.map((set: any) => ({ ...set, completed: markCompleted })) }
           : item)
       };
-      void cacheCurrentSession(next);
+      persistCurrentSession(next);
       return next;
     });
     for (const set of exercise.workout_sets) {
@@ -413,7 +535,7 @@ export function WorkoutSessionPageV2() {
           ? { ...item, workout_sets: [...item.workout_sets, nextSet] }
           : item)
       };
-      void cacheCurrentSession(next);
+      persistCurrentSession(next);
       return next;
     });
     await saveMutation({ operation: 'upsert', table: 'workout_sets', payload: { ...nextSet, workout_exercise_id: exercise.id }, dedupeKey: `new-set:${nextSet.id}` });
@@ -430,7 +552,7 @@ export function WorkoutSessionPageV2() {
         : item)
     };
     setSession(nextSession);
-    await cacheCurrentSession(nextSession);
+    persistCurrentSession(nextSession);
     await saveMutation({ operation: 'update', table: 'workout_exercises', payload: { exercise_id: exercise.id }, match: { id: replaceTarget.id }, dedupeKey: `replace-session:${replaceTarget.id}` });
     if (permanent && plannedId) {
       await updateCachedRoutineExercise(user.id, plannedId, exercise);
@@ -456,16 +578,22 @@ export function WorkoutSessionPageV2() {
 
   const finish = async () => {
     if (!id || !user || !session) return;
+    if (snapshotTimerRef.current !== null) {
+      window.clearTimeout(snapshotTimerRef.current);
+      snapshotTimerRef.current = null;
+    }
     const finishedAt = new Date().toISOString();
     const next = { ...session, finished_at: finishedAt };
     setSession(next);
+    persistCurrentSession(next, false);
     await Promise.all([
-      cacheCurrentSession(next),
       cacheSessionSummary(user.id, { id, routine_id: session.routine_id, session_date: session.session_date, started_at: session.started_at, finished_at: finishedAt }),
-      cacheFinishedExerciseWeights(next)
+      cacheFinishedExerciseWeights(next),
+      queueSessionSnapshot(next)
     ]);
     await saveMutation({ operation: 'update', table: 'workout_sessions', payload: { finished_at: finishedAt, updated_at: finishedAt }, match: { id }, dedupeKey: `finish-session:${id}` });
     localStorage.removeItem(timerStorageKey);
+    localStorage.removeItem(sessionDraftKey);
     navigate('/entreno');
   };
 
