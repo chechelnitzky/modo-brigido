@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedDate } from '../context/SelectedDateContext';
 import { completedWorkoutDate, prettyDate } from '../lib/date';
-import { cacheKeys, cacheSessionSummary, getCached, queueMutation, saveMutation, setCached, syncPendingMutations } from '../lib/offline';
+import { cacheKeys, cacheSessionSummary, getCached, getSyncStatus, queueMutation, saveMutation, setCached, syncPendingMutations } from '../lib/offline';
 import { getSupabase } from '../lib/supabase';
 
 type Routine = { id: string; name: string; day_order: number; routine_exercises: Array<{ id: string; position: number; target_sets: number; rep_min: number; rep_max: number; rir_target: number; exercise: { id: number; name: string; primary_muscle: string; equipment: string } }> };
@@ -48,6 +48,7 @@ export function WorkoutsPageV2() {
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [sessions, setSessions] = useState<any[]>([]);
   const [weekSessions, setWeekSessions] = useState<any[]>([]);
+  const [activeSessions, setActiveSessions] = useState<Record<string, any>>({});
   const [records, setRecords] = useState<PersonalRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState<string | null>(null);
@@ -67,6 +68,21 @@ export function WorkoutsPageV2() {
     await setCached(weekSessionCacheKey, next);
   };
 
+  const readActiveSessionCopies = async (sessionList: any[]) => {
+    const entries = await Promise.all(sessionList.filter((session) => !session.finished_at).map(async (session) => {
+      let draft: any = null;
+      try {
+        const saved = localStorage.getItem(`modo-brigido-session-draft:${session.id}`);
+        draft = saved ? JSON.parse(saved)?.session ?? null : null;
+      } catch {
+        draft = null;
+      }
+      const cached = await getCached<any>(cacheKeys.workoutSession(session.id));
+      return [session.id, draft ?? cached] as const;
+    }));
+    return Object.fromEntries(entries.filter((entry) => Boolean(entry[1])));
+  };
+
   const load = async () => {
     if (!user) return;
     setLoading(true);
@@ -80,9 +96,11 @@ export function WorkoutsPageV2() {
     ]);
     const fallbackWeekSessions = cachedWeekSessions ?? (cachedAllSessions ?? []).filter((session) => session.session_date >= weekRange.start && session.session_date <= weekRange.end);
     const fallbackSessions = cachedDateSessions ?? fallbackWeekSessions.filter((session) => session.session_date === selectedDate);
+    const cachedActiveSessions = await readActiveSessionCopies(fallbackSessions);
     if (cachedRoutines) setRoutines(cachedRoutines);
     setSessions(fallbackSessions);
     setWeekSessions(fallbackWeekSessions);
+    setActiveSessions(cachedActiveSessions);
     if (cachedRecords) setRecords(cachedRecords);
     setLoading(false);
 
@@ -91,9 +109,12 @@ export function WorkoutsPageV2() {
       return;
     }
 
+    await syncPendingMutations();
+    const hasPendingChanges = getSyncStatus().pending > 0;
+
     const [routineResult, sessionResult, recordResult] = await Promise.all([
       supabase.from('routine_templates').select(`id,name,day_order,routine_exercises(id,position,target_sets,rep_min,rep_max,rir_target,exercise:exercise_library(id,name,primary_muscle,equipment))`).eq('user_id', user.id).order('day_order'),
-      supabase.from('workout_sessions').select('id,routine_id,session_date,finished_at,started_at').eq('user_id', user.id).gte('session_date', weekRange.start).lte('session_date', weekRange.end).order('started_at', { ascending: false }),
+      supabase.from('workout_sessions').select(`id,routine_id,session_date,finished_at,started_at,workout_exercises(id,position,exercise_id,planned_routine_exercise_id,exercise:exercise_library(id,name,primary_muscle,equipment),planned:routine_exercises(target_sets,rep_min,rep_max,rir_target))`).eq('user_id', user.id).gte('session_date', weekRange.start).lte('session_date', weekRange.end).order('started_at', { ascending: false }),
       supabase.from('workout_sessions').select(`session_date,workout_exercises(exercise:exercise_library(id,name),workout_sets(weight_kg,reps,completed))`).eq('user_id', user.id).not('finished_at', 'is', null).order('session_date', { ascending: false }).limit(100)
     ]);
 
@@ -102,16 +123,23 @@ export function WorkoutsPageV2() {
       return;
     }
 
-    const sorted = ((routineResult.data ?? []) as unknown as Routine[]).map((routine) => ({ ...routine, routine_exercises: [...(routine.routine_exercises ?? [])].sort((a, b) => a.position - b.position) }));
+    const remoteRoutines = ((routineResult.data ?? []) as unknown as Routine[]).map((routine) => ({ ...routine, routine_exercises: [...(routine.routine_exercises ?? [])].sort((a, b) => a.position - b.position) }));
+    const nextRoutines = hasPendingChanges && cachedRoutines?.length ? cachedRoutines : remoteRoutines;
     const nextWeekSessions = sessionResult.data ?? [];
     const nextSessions = nextWeekSessions.filter((session) => session.session_date === selectedDate);
+    const localActiveSessions = await readActiveSessionCopies(nextSessions);
+    const remoteActiveSessions = Object.fromEntries(nextSessions
+      .filter((session) => !session.finished_at && session.workout_exercises?.length)
+      .map((session) => [session.id, session]));
+    const nextActiveSessions = { ...remoteActiveSessions, ...localActiveSessions };
     const nextRecords = calculatePersonalRecords(recordResult.data ?? []);
-    setRoutines(sorted);
+    setRoutines(nextRoutines);
     setSessions(nextSessions);
     setWeekSessions(nextWeekSessions);
+    setActiveSessions(nextActiveSessions);
     setRecords(nextRecords);
     await Promise.all([
-      setCached(cacheKeys.routines(user.id), sorted),
+      hasPendingChanges ? Promise.resolve() : setCached(cacheKeys.routines(user.id), remoteRoutines),
       setCached(sessionCacheKey, nextSessions),
       setCached(weekSessionCacheKey, nextWeekSessions),
       setCached(`personal-records:${user.id}`, nextRecords)
@@ -144,6 +172,7 @@ export function WorkoutsPageV2() {
       persistSelectedDateSessions(nextDateSessions),
       persistWeekSessions(nextWeekSessions)
     ]);
+    setActiveSessions((current) => ({ ...current, [sessionId]: localSession }));
     await queueMutation({ operation: 'upsert', table: 'workout_sessions', dedupeKey: `session:${sessionId}`, payload: { id: sessionId, user_id: user.id, routine_id: routine.id, session_date: sessionDate, started_at: startedAt, finished_at: null, notes: null } });
     await queueMutation({ operation: 'upsert', table: 'workout_exercises', dedupeKey: `session-exercises:${sessionId}`, payload: workoutExercises.map((item) => ({ id: item.id, session_id: sessionId, planned_routine_exercise_id: item.planned_routine_exercise_id, exercise_id: item.exercise_id, position: item.position })) });
     await queueMutation({ operation: 'upsert', table: 'workout_sets', dedupeKey: `session-sets:${sessionId}`, payload: workoutExercises.flatMap((exercise) => exercise.workout_sets.map((set) => ({ ...set, workout_exercise_id: exercise.id }))) });
@@ -194,13 +223,24 @@ export function WorkoutsPageV2() {
       const lockedByAnotherDay = Boolean(completedThisWeek && completedThisWeek.id !== assignedSession?.id);
       const isWeeklyLocked = isFinished || lockedByAnotherDay;
       const cardClassName = isWeeklyLocked ? 'routine-card weekly-locked' : 'routine-card';
+      const activeSession = assignedSession ? activeSessions[assignedSession.id] : null;
+      const displayedExercises = isInProgress && activeSession?.workout_exercises?.length
+        ? [...activeSession.workout_exercises].sort((a: any, b: any) => a.position - b.position).map((item: any) => ({
+          id: item.planned_routine_exercise_id ?? item.id,
+          target_sets: item.planned?.target_sets ?? item.workout_sets?.length ?? 2,
+          rep_min: item.planned?.rep_min ?? 8,
+          rep_max: item.planned?.rep_max ?? 12,
+          rir_target: item.planned?.rir_target ?? 3,
+          exercise: Array.isArray(item.exercise) ? item.exercise[0] : item.exercise
+        }))
+        : routine.routine_exercises;
       return <article className={cardClassName} key={routine.id}>
         <div className="routine-card-top"><div className="metric-icon"><Dumbbell /></div><div><span>Día {index + 1}</span><h2>{routine.name}</h2></div>{isFinished ? <span className="status-chip green"><CheckCircle2 size={14} /> Hecha</span> : lockedByAnotherDay ? <span className="status-chip weekly-lock"><LockKeyhole size={14} /> Hecha esta semana</span> : isInProgress ? <span className="status-chip orange">En curso</span> : <span className="status-chip">Disponible</span>}</div>
-        <ol>{routine.routine_exercises.map((item) => <li key={item.id}><span>{item.exercise.name}</span><small>{item.target_sets} × {item.rep_min}–{item.rep_max} · RIR {item.rir_target}</small></li>)}</ol>
-        {!routine.routine_exercises.length && <div className="alert error">Agrega al menos un ejercicio desde “Editar programa”.</div>}
+        <ol>{displayedExercises.map((item: any) => <li key={item.id}><span>{item.exercise?.name ?? 'Ejercicio'}</span><small>{item.target_sets} × {item.rep_min}–{item.rep_max} · RIR {item.rir_target}</small></li>)}</ol>
+        {!displayedExercises.length && <div className="alert error">Agrega al menos un ejercicio desde “Editar programa”.</div>}
         {assignedSession ? <p className="last-session"><CalendarDays size={15} /> Asignada a: {completedWorkoutDate(assignedSession.session_date)}</p> : completedThisWeek ? <p className="last-session"><LockKeyhole size={15} /> Completada esta semana: {completedWorkoutDate(completedThisWeek.session_date)}</p> : null}
         <div className="routine-action-row">
-          <button className="primary-button" onClick={() => isInProgress ? navigate(`/sesion/${assignedSession.id}`) : startRoutine(routine)} disabled={starting === routine.id || !routine.routine_exercises.length || isWeeklyLocked}><Play size={17} /> {starting === routine.id ? 'Preparando…' : isInProgress ? 'Continuar rutina' : isFinished ? 'Rutina completada' : lockedByAnotherDay ? 'Hecha esta semana' : 'Iniciar rutina'} <ChevronRight size={17} /></button>
+          <button className="primary-button" onClick={() => isInProgress ? navigate(`/sesion/${assignedSession.id}`) : startRoutine(routine)} disabled={starting === routine.id || !displayedExercises.length || isWeeklyLocked}><Play size={17} /> {starting === routine.id ? 'Preparando…' : isInProgress ? 'Continuar rutina' : isFinished ? 'Rutina completada' : lockedByAnotherDay ? 'Hecha esta semana' : 'Iniciar rutina'} <ChevronRight size={17} /></button>
           {isFinished && <button className="secondary-button routine-unmark" onClick={() => unmarkRoutine(assignedSession)} disabled={updatingSession === assignedSession.id}><RotateCcw size={16} /> {updatingSession === assignedSession.id ? 'Desmarcando…' : 'Desmarcar rutina'}</button>}
         </div>
       </article>;
