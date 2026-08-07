@@ -124,12 +124,12 @@ function lastCompletedWeight(workoutSets: any[]): number {
   return 0;
 }
 
-function bestSetMetric(workoutSets: any[]): ExerciseHistoryMetric {
+function bestSetMetric(workoutSets: any[], requireCompleted = true): ExerciseHistoryMetric {
   let best = emptyHistoryMetric();
   for (const set of workoutSets ?? []) {
     const weight = Number(set.weight_kg);
     const reps = Number(set.reps);
-    if (!set.completed || !Number.isFinite(weight) || !Number.isFinite(reps) || weight <= 0 || reps <= 0) continue;
+    if ((requireCompleted && !set.completed) || !Number.isFinite(weight) || !Number.isFinite(reps) || weight <= 0 || reps <= 0) continue;
     const estimatedOneRepMax = weight * (1 + reps / 30);
     if (estimatedOneRepMax > best.estimatedOneRepMax) {
       best = { lastWeight: 0, prWeight: weight, prReps: reps, estimatedOneRepMax };
@@ -774,7 +774,12 @@ export function WorkoutSessionPageV2() {
       <section className="exercise-stack">
         {session.workout_exercises.map((exercise: any) => {
           const exerciseCompleted = exercise.workout_sets.length > 0 && exercise.workout_sets.every((set: any) => set.completed);
-          const history = exerciseHistoryMetrics[String(exercise.exercise_id)] ?? emptyHistoryMetric(lastExerciseWeights[String(exercise.exercise_id)] ?? 0);
+          const historicalHistory = exerciseHistoryMetrics[String(exercise.exercise_id)] ?? emptyHistoryMetric(lastExerciseWeights[String(exercise.exercise_id)] ?? 0);
+          const liveBest = bestSetMetric(exercise.workout_sets ?? [], false);
+          const history = liveBest.estimatedOneRepMax > historicalHistory.estimatedOneRepMax
+            ? { ...historicalHistory, prWeight: liveBest.prWeight, prReps: liveBest.prReps, estimatedOneRepMax: liveBest.estimatedOneRepMax }
+            : historicalHistory;
+          const liveMetricAvailable = liveBest.estimatedOneRepMax > 0;
           return (
             <article className={exerciseCompleted ? 'panel exercise-panel exercise-completed' : 'panel exercise-panel'} key={exercise.id}>
               <div className="exercise-title">
@@ -784,8 +789,8 @@ export function WorkoutSessionPageV2() {
                   <h2>{exercise.exercise?.name || 'Ejercicio'}</h2>
                   <small>Objetivo: {exercise.planned?.target_sets ?? exercise.workout_sets.length} × {exercise.planned?.rep_min ?? 8}–{exercise.planned?.rep_max ?? 12} · RIR {exercise.planned?.rir_target ?? 2}</small>
                   <small style={{ display: 'block', marginTop: 4 }}>Última vez: {lastWeightsLoading ? '…' : `${formatWeightKg(history.lastWeight)} kg`}</small>
-                  <small style={{ display: 'block', marginTop: 2 }}>PR: {lastWeightsLoading ? '…' : history.prWeight > 0 ? `${formatWeightKg(history.prWeight)} kg × ${history.prReps}` : '0 kg'}</small>
-                  <small style={{ display: 'block', marginTop: 2 }}>1RM estimado: {lastWeightsLoading ? '…' : `${formatWeightKg(history.estimatedOneRepMax)} kg`}</small>
+                  <small style={{ display: 'block', marginTop: 2 }}>PR: {lastWeightsLoading && !liveMetricAvailable ? '…' : history.prWeight > 0 ? `${formatWeightKg(history.prWeight)} kg × ${history.prReps}` : '0 kg'}</small>
+                  <small style={{ display: 'block', marginTop: 2 }}>1RM estimado: {lastWeightsLoading && !liveMetricAvailable ? '…' : `${formatWeightKg(history.estimatedOneRepMax)} kg`}</small>
                 </div>
                 <div className="exercise-actions">
                   <button className={exerciseCompleted ? 'secondary-button compact exercise-toggle active' : 'secondary-button compact exercise-toggle'} onClick={() => toggleExerciseComplete(exercise)}>{exerciseCompleted ? <RotateCcw size={15} /> : <CheckCircle2 size={15} />} {exerciseCompleted ? 'Desmarcar ejercicio' : 'Marcar ejercicio hecho'}</button>
