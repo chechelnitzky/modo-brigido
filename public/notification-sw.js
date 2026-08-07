@@ -18,10 +18,8 @@ self.addEventListener('push', (event) => {
 
   event.waitUntil((async () => {
     const clientsList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    const visibleClient = clientsList.find((client) => client.visibilityState === 'visible');
-    if (visibleClient) {
-      visibleClient.postMessage({ type: 'timer-push-received', payload });
-      return;
+    for (const client of clientsList) {
+      client.postMessage({ type: 'timer-push-received', payload });
     }
     await self.registration.showNotification(title, options);
   })());
