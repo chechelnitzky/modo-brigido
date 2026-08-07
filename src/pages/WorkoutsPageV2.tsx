@@ -260,13 +260,30 @@ export function WorkoutsPageV2() {
   const unmarkRoutine = async (session: any) => {
     if (!user || !session?.id) return;
     setUpdatingSession(session.id);
-    const nextDateSessions = sessions.map((item) => item.id === session.id ? { ...item, finished_at: null } : item);
-    const nextWeekSessions = weekSessions.map((item) => item.id === session.id ? { ...item, finished_at: null } : item);
+
+    const permanentDraft = readPermanentDrafts().find((draft) => draft.id === session.id) ?? null;
+    const cachedFullSession = await getCached<any>(cacheKeys.workoutSession(session.id));
+    const sourceSession = permanentDraft ?? cachedFullSession ?? activeSessions[session.id] ?? session;
+    const reopenedSession = { ...sourceSession, finished_at: null };
+    const reopenedSummary = sessionSummary(reopenedSession);
+
+    try {
+      localStorage.setItem(`modo-brigido-session-draft:${session.id}`, JSON.stringify({ updatedAt: Date.now(), session: reopenedSession }));
+    } catch {
+      // IndexedDB sigue conservando la copia completa si localStorage falla.
+    }
+
+    const nextDateSessions = sessions.map((item) => item.id === session.id ? { ...item, ...reopenedSummary } : item);
+    const nextWeekSessions = weekSessions.map((item) => item.id === session.id ? { ...item, ...reopenedSummary } : item);
+    setActiveSessions((current) => ({ ...current, [session.id]: reopenedSession }));
+
     await Promise.all([
+      setCached(cacheKeys.workoutSession(session.id), reopenedSession),
       persistSelectedDateSessions(nextDateSessions),
       persistWeekSessions(nextWeekSessions),
-      cacheSessionSummary(user.id, { ...session, finished_at: null })
+      cacheSessionSummary(user.id, reopenedSummary)
     ]);
+
     await saveMutation({ operation: 'update', table: 'workout_sessions', payload: { finished_at: null, updated_at: new Date().toISOString() }, match: { id: session.id }, dedupeKey: `unfinish-session:${session.id}` });
     setUpdatingSession(null);
   };
