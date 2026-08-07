@@ -8,6 +8,7 @@ import { useOfflineStatus } from '../hooks/useOfflineStatus';
 import { cacheKeys, cacheSessionSummary, getCached, queueMutation, saveMutation, setCached, syncPendingMutations, updateCachedRoutineExercise } from '../lib/offline';
 import { getSupabase } from '../lib/supabase';
 import {
+  cancelScheduledTimerAlert,
   getTimerNotificationPermission,
   prepareTimerAlerts,
   requestTimerNotificationPermission,
@@ -20,6 +21,7 @@ const REST_SECONDS = 120;
 type TimerState = { remaining: number; endAt: number | null; running: boolean; finished: boolean };
 type LastExerciseWeights = Record<string, number>;
 type StoredSessionDraft = { updatedAt: number; session: any };
+type StoredSetDraft = { updatedAt: number; set: any };
 
 function formatTimer(seconds: number) {
   const safe = Math.max(0, seconds);
@@ -156,10 +158,82 @@ export function WorkoutSessionPageV2() {
   const sessionDraftKey = `modo-brigido-session-draft:${id ?? 'unknown'}`;
   const alertedEndAtRef = useRef<number | null>(null);
   const sessionRef = useRef<any>(null);
-  const snapshotTimerRef = useRef<number | null>(null);
+  const persistenceChainRef = useRef<Promise<void>>(Promise.resolve());
 
   const cacheCurrentSession = async (next: any) => {
     if (id) await setCached(cacheKeys.workoutSession(id), next);
+  };
+
+  const setDraftKey = (setId: string) => `modo-brigido-workout-set:${id ?? 'unknown'}:${setId}`;
+
+  const persistSessionLocally = (nextSession: any) => {
+    if (!nextSession) return;
+    sessionRef.current = nextSession;
+    try {
+      const draft: StoredSessionDraft = { updatedAt: Date.now(), session: nextSession };
+      localStorage.setItem(sessionDraftKey, JSON.stringify(draft));
+    } catch {
+      // IndexedDB remains as a second permanent copy.
+    }
+    void cacheCurrentSession(nextSession);
+  };
+
+  const persistSetLocally = (set: any) => {
+    if (!set?.id) return;
+    try {
+      const draft: StoredSetDraft = { updatedAt: Date.now(), set };
+      localStorage.setItem(setDraftKey(set.id), JSON.stringify(draft));
+    } catch {
+      // The full session draft still keeps the value if this individual write fails.
+    }
+  };
+
+  const overlayPersistentSetValues = (nextSession: any) => {
+    if (!nextSession || !id) return nextSession;
+    return {
+      ...nextSession,
+      workout_exercises: (nextSession.workout_exercises ?? []).map((exercise: any) => ({
+        ...exercise,
+        workout_sets: (exercise.workout_sets ?? []).map((set: any) => {
+          try {
+            const saved = localStorage.getItem(setDraftKey(set.id));
+            if (!saved) return set;
+            const parsed = JSON.parse(saved) as StoredSetDraft;
+            return parsed?.set ? { ...set, ...parsed.set } : set;
+          } catch {
+            return set;
+          }
+        })
+      }))
+    };
+  };
+
+  const enqueuePersistence = (task: () => Promise<void>) => {
+    persistenceChainRef.current = persistenceChainRef.current
+      .catch(() => undefined)
+      .then(task)
+      .catch(() => undefined);
+  };
+
+  const persistSetToBackend = (set: any) => {
+    if (!set?.id) return;
+    const payload = {
+      weight_kg: numberOrNull(set.weight_kg),
+      reps: numberOrNull(set.reps),
+      rir: numberOrNull(set.rir),
+      completed: Boolean(set.completed),
+      updated_at: new Date().toISOString()
+    };
+    enqueuePersistence(async () => {
+      await queueMutation({
+        operation: 'update',
+        table: 'workout_sets',
+        payload,
+        match: { id: set.id },
+        dedupeKey: `set:${set.id}`
+      });
+      if (navigator.onLine) await syncPendingMutations();
+    });
   };
 
   const queueSessionSnapshot = async (nextSession: any) => {
@@ -203,26 +277,6 @@ export function WorkoutSessionPageV2() {
     if (navigator.onLine) await syncPendingMutations();
   };
 
-  const scheduleSessionSnapshot = (nextSession: any) => {
-    if (snapshotTimerRef.current !== null) window.clearTimeout(snapshotTimerRef.current);
-    snapshotTimerRef.current = window.setTimeout(() => {
-      snapshotTimerRef.current = null;
-      void queueSessionSnapshot(nextSession);
-    }, 650);
-  };
-
-  const persistCurrentSession = (nextSession: any, scheduleSync = true) => {
-    sessionRef.current = nextSession;
-    try {
-      const draft: StoredSessionDraft = { updatedAt: Date.now(), session: nextSession };
-      localStorage.setItem(sessionDraftKey, JSON.stringify(draft));
-    } catch {
-      // IndexedDB remains as the secondary local copy if localStorage is unavailable.
-    }
-    void cacheCurrentSession(nextSession);
-    if (scheduleSync && !nextSession.finished_at) scheduleSessionSnapshot(nextSession);
-  };
-
   const readSessionDraft = () => {
     try {
       const saved = localStorage.getItem(sessionDraftKey);
@@ -230,7 +284,6 @@ export function WorkoutSessionPageV2() {
       const parsed = JSON.parse(saved) as StoredSessionDraft;
       return parsed?.session ? normalizeSessionData(parsed.session) : null;
     } catch {
-      localStorage.removeItem(sessionDraftKey);
       return null;
     }
   };
@@ -250,6 +303,7 @@ export function WorkoutSessionPageV2() {
           rir: null,
           completed: false
         }));
+        workoutSets.forEach(persistSetLocally);
         inserts.push(...workoutSets.map((set) => ({ ...set, workout_exercise_id: exercise.id })));
         return { ...exercise, workout_sets: workoutSets };
       })
@@ -299,12 +353,15 @@ export function WorkoutSessionPageV2() {
       user ? getCached<LastExerciseWeights>(`last-exercise-weights:${user.id}`) : Promise.resolve(null)
     ]);
     const draftSession = readSessionDraft();
-    let nextSession = mergeSessionData(indexedSession, draftSession);
+    let nextSession = overlayPersistentSetValues(draftSession ?? (indexedSession ? normalizeSessionData(indexedSession) : null));
+
     if (nextSession) {
       sessionRef.current = nextSession;
       setSession(nextSession);
+      persistSessionLocally(nextSession);
       setLastExerciseWeights(weightsForSession(nextSession, cachedWeights ?? {}));
     }
+
     if (!navigator.onLine) {
       setLastWeightsLoading(false);
       if (!nextSession) setError('Esta sesión no está guardada en este dispositivo.');
@@ -317,17 +374,26 @@ export function WorkoutSessionPageV2() {
       .select(`id,user_id,routine_id,session_date,started_at,finished_at,notes,routine:routine_templates(name),workout_exercises(id,position,exercise_id,planned_routine_exercise_id,exercise:exercise_library(id,slug,name,category,primary_muscle,pattern,equipment,user_id),planned:routine_exercises(target_sets,rep_min,rep_max,rir_target),workout_sets(id,set_number,weight_kg,reps,rir,completed))`)
       .eq('id', id)
       .single();
+
     if (loadError) {
       if (!nextSession) setError(loadError.message);
       if (nextSession) await loadLastExerciseWeights(nextSession, cachedWeights ?? {});
       else setLastWeightsLoading(false);
       return;
     }
+
     if (data) {
-      nextSession = await repairMissingSets(mergeSessionData(data, nextSession));
+      if (draftSession) {
+        nextSession = overlayPersistentSetValues(draftSession);
+      } else if (nextSession) {
+        nextSession = overlayPersistentSetValues(mergeSessionData(data, nextSession));
+      } else {
+        nextSession = overlayPersistentSetValues(normalizeSessionData(data));
+      }
+      nextSession = await repairMissingSets(nextSession);
       setSession(nextSession);
-      persistCurrentSession(nextSession, false);
-      if (!nextSession.finished_at) await queueSessionSnapshot(nextSession);
+      persistSessionLocally(nextSession);
+      if (draftSession && !nextSession.finished_at) enqueuePersistence(() => queueSessionSnapshot(nextSession));
       await loadLastExerciseWeights(nextSession, cachedWeights ?? {});
     } else {
       setLastWeightsLoading(false);
@@ -337,28 +403,22 @@ export function WorkoutSessionPageV2() {
   useEffect(() => { void load(); }, [id, user?.id]);
 
   useEffect(() => {
-    const flushDraft = () => {
+    const persistBeforeLeaving = () => {
       const current = sessionRef.current;
-      if (!current || current.finished_at) return;
-      if (snapshotTimerRef.current !== null) {
-        window.clearTimeout(snapshotTimerRef.current);
-        snapshotTimerRef.current = null;
-      }
-      persistCurrentSession(current, false);
-      void queueSessionSnapshot(current);
+      if (current) persistSessionLocally(current);
     };
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') flushDraft();
+      if (document.visibilityState === 'hidden') persistBeforeLeaving();
     };
 
-    window.addEventListener('pagehide', flushDraft);
+    window.addEventListener('pagehide', persistBeforeLeaving);
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
-      window.removeEventListener('pagehide', flushDraft);
+      window.removeEventListener('pagehide', persistBeforeLeaving);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      flushDraft();
+      persistBeforeLeaving();
     };
-  }, [id, user?.id]);
+  }, [id]);
 
   useEffect(() => {
     const saved = localStorage.getItem(timerStorageKey);
@@ -367,10 +427,15 @@ export function WorkoutSessionPageV2() {
       const parsed = JSON.parse(saved) as TimerState;
       if (parsed.running && parsed.endAt) {
         const remaining = Math.max(0, Math.ceil((parsed.endAt - Date.now()) / 1000));
-        setTimer({ ...parsed, remaining, running: remaining > 0, finished: remaining === 0 });
+        const restored = { ...parsed, remaining, running: remaining > 0, finished: remaining === 0 };
+        setTimer(restored);
+        localStorage.setItem(timerStorageKey, JSON.stringify(restored));
+        if (remaining > 0 && notificationPermission === 'granted') {
+          void prepareTimerAlerts({ endAt: parsed.endAt, sessionId: id, routineName: sessionRef.current?.routine?.name });
+        }
         if (remaining === 0 && alertedEndAtRef.current !== parsed.endAt) {
           alertedEndAtRef.current = parsed.endAt;
-          void triggerTimerFinishedAlert(session?.routine?.name);
+          void triggerTimerFinishedAlert(sessionRef.current?.routine?.name);
         }
       } else {
         setTimer(parsed);
@@ -378,7 +443,7 @@ export function WorkoutSessionPageV2() {
     } catch {
       localStorage.removeItem(timerStorageKey);
     }
-  }, [timerStorageKey, session?.routine?.name]);
+  }, [timerStorageKey, id, notificationPermission]);
 
   useEffect(() => {
     localStorage.setItem(timerStorageKey, JSON.stringify(timer));
@@ -393,27 +458,35 @@ export function WorkoutSessionPageV2() {
         setTimer((current) => ({ ...current, remaining }));
         return;
       }
-      setTimer({ remaining: 0, endAt: null, running: false, finished: true });
+      const finishedTimer: TimerState = { remaining: 0, endAt: null, running: false, finished: true };
+      setTimer(finishedTimer);
+      localStorage.setItem(timerStorageKey, JSON.stringify(finishedTimer));
       if (alertedEndAtRef.current !== endAt) {
         alertedEndAtRef.current = endAt;
-        void triggerTimerFinishedAlert(session?.routine?.name);
+        void triggerTimerFinishedAlert(sessionRef.current?.routine?.name);
       }
     };
     tick();
     const interval = window.setInterval(tick, 250);
     return () => window.clearInterval(interval);
-  }, [timer.running, timer.endAt, session?.routine?.name]);
+  }, [timer.running, timer.endAt, timerStorageKey]);
 
   const startTimer = (seconds = REST_SECONDS) => {
-    void prepareTimerAlerts();
+    const endAt = Date.now() + seconds * 1000;
+    const nextTimer: TimerState = { remaining: seconds, endAt, running: true, finished: false };
     alertedEndAtRef.current = null;
-    setTimer({ remaining: seconds, endAt: Date.now() + seconds * 1000, running: true, finished: false });
+    localStorage.setItem(timerStorageKey, JSON.stringify(nextTimer));
+    setTimer(nextTimer);
+    void prepareTimerAlerts({ endAt, sessionId: id, routineName: sessionRef.current?.routine?.name });
   };
 
   const toggleTimer = () => {
     if (timer.running) {
       const remaining = timer.endAt ? Math.max(0, Math.ceil((timer.endAt - Date.now()) / 1000)) : timer.remaining;
-      setTimer({ remaining, endAt: null, running: false, finished: false });
+      const paused: TimerState = { remaining, endAt: null, running: false, finished: false };
+      localStorage.setItem(timerStorageKey, JSON.stringify(paused));
+      setTimer(paused);
+      void cancelScheduledTimerAlert();
     } else {
       startTimer(timer.remaining > 0 ? timer.remaining : REST_SECONDS);
     }
@@ -421,12 +494,18 @@ export function WorkoutSessionPageV2() {
 
   const resetTimer = () => {
     alertedEndAtRef.current = null;
-    setTimer({ remaining: REST_SECONDS, endAt: null, running: false, finished: false });
+    const reset: TimerState = { remaining: REST_SECONDS, endAt: null, running: false, finished: false };
+    localStorage.setItem(timerStorageKey, JSON.stringify(reset));
+    setTimer(reset);
+    void cancelScheduledTimerAlert();
   };
 
   const enableNotifications = async () => {
     const permission = await requestTimerNotificationPermission();
     setNotificationPermission(permission);
+    if (permission === 'granted' && timer.running && timer.endAt) {
+      await prepareTimerAlerts({ endAt: timer.endAt, sessionId: id, routineName: sessionRef.current?.routine?.name });
+    }
   };
 
   const loadLibrary = async (target: any) => {
@@ -455,104 +534,95 @@ export function WorkoutSessionPageV2() {
   };
 
   const editSetLocal = (exerciseId: string, setId: string, field: string, value: string | boolean) => {
-    setSession((current: any) => {
-      const next = {
-        ...current,
-        workout_exercises: current.workout_exercises.map((exercise: any) => exercise.id === exerciseId
-          ? { ...exercise, workout_sets: exercise.workout_sets.map((set: any) => set.id === setId ? { ...set, [field]: value === '' ? null : value } : set) }
-          : exercise)
-      };
-      persistCurrentSession(next);
-      return next;
-    });
-  };
-
-  const saveSet = async (set: any) => {
-    if (!set) return;
-    setSaving(true);
-    await saveMutation({
-      operation: 'update',
-      table: 'workout_sets',
-      payload: {
-        weight_kg: numberOrNull(set.weight_kg),
-        reps: numberOrNull(set.reps),
-        rir: numberOrNull(set.rir),
-        completed: Boolean(set.completed),
-        updated_at: new Date().toISOString()
-      },
-      match: { id: set.id },
-      dedupeKey: `set:${set.id}`
-    });
-    setSaving(false);
+    const current = sessionRef.current ?? session;
+    if (!current) return;
+    let changedSet: any = null;
+    const next = {
+      ...current,
+      workout_exercises: current.workout_exercises.map((exercise: any) => exercise.id === exerciseId
+        ? {
+          ...exercise,
+          workout_sets: exercise.workout_sets.map((set: any) => {
+            if (set.id !== setId) return set;
+            changedSet = { ...set, [field]: value === '' ? null : value };
+            return changedSet;
+          })
+        }
+        : exercise)
+    };
+    setSession(next);
+    persistSessionLocally(next);
+    if (changedSet) {
+      persistSetLocally(changedSet);
+      persistSetToBackend(changedSet);
+    }
   };
 
   const toggleComplete = async (exerciseId: string, set: any) => {
     const completed = !set.completed;
     editSetLocal(exerciseId, set.id, 'completed', completed);
-    await saveMutation({
-      operation: 'update',
-      table: 'workout_sets',
-      payload: { completed, updated_at: new Date().toISOString() },
-      match: { id: set.id },
-      dedupeKey: `set-complete:${set.id}`
-    });
     if (completed) startTimer();
   };
 
   const toggleExerciseComplete = async (exercise: any) => {
-    const markCompleted = !(exercise.workout_sets.length > 0 && exercise.workout_sets.every((set: any) => set.completed));
-    const updatedAt = new Date().toISOString();
-    setSession((current: any) => {
-      const next = {
-        ...current,
-        workout_exercises: current.workout_exercises.map((item: any) => item.id === exercise.id
-          ? { ...item, workout_sets: item.workout_sets.map((set: any) => ({ ...set, completed: markCompleted })) }
-          : item)
-      };
-      persistCurrentSession(next);
-      return next;
+    const current = sessionRef.current ?? session;
+    if (!current) return;
+    const activeExercise = current.workout_exercises.find((item: any) => item.id === exercise.id) ?? exercise;
+    const markCompleted = !(activeExercise.workout_sets.length > 0 && activeExercise.workout_sets.every((set: any) => set.completed));
+    const changedSets: any[] = [];
+    const next = {
+      ...current,
+      workout_exercises: current.workout_exercises.map((item: any) => item.id === exercise.id
+        ? {
+          ...item,
+          workout_sets: item.workout_sets.map((set: any) => {
+            const changed = { ...set, completed: markCompleted };
+            changedSets.push(changed);
+            return changed;
+          })
+        }
+        : item)
+    };
+    setSession(next);
+    persistSessionLocally(next);
+    changedSets.forEach((set) => {
+      persistSetLocally(set);
+      persistSetToBackend(set);
     });
-    for (const set of exercise.workout_sets) {
-      await queueMutation({
-        operation: 'update',
-        table: 'workout_sets',
-        payload: { completed: markCompleted, updated_at: updatedAt },
-        match: { id: set.id },
-        dedupeKey: `set-complete:${set.id}`
-      });
-    }
-    if (navigator.onLine) await syncPendingMutations();
     if (markCompleted) startTimer();
   };
 
   const addSet = async (exercise: any) => {
-    const nextNumber = (exercise.workout_sets.at(-1)?.set_number ?? 0) + 1;
+    const current = sessionRef.current ?? session;
+    if (!current) return;
+    const activeExercise = current.workout_exercises.find((item: any) => item.id === exercise.id) ?? exercise;
+    const nextNumber = (activeExercise.workout_sets.at(-1)?.set_number ?? 0) + 1;
     const nextSet = { id: crypto.randomUUID(), set_number: nextNumber, weight_kg: null, reps: null, rir: null, completed: false };
-    setSession((current: any) => {
-      const next = {
-        ...current,
-        workout_exercises: current.workout_exercises.map((item: any) => item.id === exercise.id
-          ? { ...item, workout_sets: [...item.workout_sets, nextSet] }
-          : item)
-      };
-      persistCurrentSession(next);
-      return next;
-    });
+    const next = {
+      ...current,
+      workout_exercises: current.workout_exercises.map((item: any) => item.id === exercise.id
+        ? { ...item, workout_sets: [...item.workout_sets, nextSet] }
+        : item)
+    };
+    setSession(next);
+    persistSetLocally(nextSet);
+    persistSessionLocally(next);
     await saveMutation({ operation: 'upsert', table: 'workout_sets', payload: { ...nextSet, workout_exercise_id: exercise.id }, dedupeKey: `new-set:${nextSet.id}` });
   };
 
   const replaceExercise = async (exercise: Exercise, permanent: boolean) => {
-    if (!replaceTarget || !user || !session) return;
+    const current = sessionRef.current ?? session;
+    if (!replaceTarget || !user || !current) return;
     setSaving(true);
     const plannedId = replaceTarget.planned_routine_exercise_id;
     const nextSession = {
-      ...session,
-      workout_exercises: session.workout_exercises.map((item: any) => item.id === replaceTarget.id
+      ...current,
+      workout_exercises: current.workout_exercises.map((item: any) => item.id === replaceTarget.id
         ? { ...item, exercise_id: exercise.id, exercise }
         : item)
     };
     setSession(nextSession);
-    persistCurrentSession(nextSession);
+    persistSessionLocally(nextSession);
     await saveMutation({ operation: 'update', table: 'workout_exercises', payload: { exercise_id: exercise.id }, match: { id: replaceTarget.id }, dedupeKey: `replace-session:${replaceTarget.id}` });
     if (permanent && plannedId) {
       await updateCachedRoutineExercise(user.id, plannedId, exercise);
@@ -577,23 +647,21 @@ export function WorkoutSessionPageV2() {
   };
 
   const finish = async () => {
-    if (!id || !user || !session) return;
-    if (snapshotTimerRef.current !== null) {
-      window.clearTimeout(snapshotTimerRef.current);
-      snapshotTimerRef.current = null;
-    }
+    const current = sessionRef.current ?? session;
+    if (!id || !user || !current) return;
     const finishedAt = new Date().toISOString();
-    const next = { ...session, finished_at: finishedAt };
+    const next = { ...current, finished_at: finishedAt };
     setSession(next);
-    persistCurrentSession(next, false);
+    persistSessionLocally(next);
+    await persistenceChainRef.current.catch(() => undefined);
     await Promise.all([
-      cacheSessionSummary(user.id, { id, routine_id: session.routine_id, session_date: session.session_date, started_at: session.started_at, finished_at: finishedAt }),
+      cacheSessionSummary(user.id, { id, routine_id: current.routine_id, session_date: current.session_date, started_at: current.started_at, finished_at: finishedAt }),
       cacheFinishedExerciseWeights(next),
       queueSessionSnapshot(next)
     ]);
     await saveMutation({ operation: 'update', table: 'workout_sessions', payload: { finished_at: finishedAt, updated_at: finishedAt }, match: { id }, dedupeKey: `finish-session:${id}` });
     localStorage.removeItem(timerStorageKey);
-    localStorage.removeItem(sessionDraftKey);
+    void cancelScheduledTimerAlert();
     navigate('/entreno');
   };
 
@@ -616,7 +684,7 @@ export function WorkoutSessionPageV2() {
       <section className={timer.finished ? 'panel rest-timer finished' : timer.running ? 'panel rest-timer running' : 'panel rest-timer'}>
         <div className="rest-timer-copy">
           <div className="metric-icon"><TimerReset /></div>
-          <div><p className="eyebrow">DESCANSO ENTRE SERIES</p><h2>{timer.finished ? '¡Listo, siguiente serie!' : 'Timer de 2 minutos'}</h2><p className="muted">Ding y vibración al terminar. Activa avisos para recibir una notificación en segundo plano.</p></div>
+          <div><p className="eyebrow">DESCANSO ENTRE SERIES</p><h2>{timer.finished ? '¡Listo, siguiente serie!' : 'Timer de 2 minutos'}</h2><p className="muted">Ding, vibración y notificación al terminar, incluso si cambias de pantalla.</p></div>
         </div>
         <div className="rest-timer-clock"><strong>{formatTimer(timer.remaining)}</strong><span>{timer.running ? 'corriendo' : timer.finished ? 'terminado' : 'preparado'}</span></div>
         <div className="rest-timer-actions">
@@ -647,9 +715,9 @@ export function WorkoutSessionPageV2() {
                 <div className="sets-head"><span>Serie</span><span>Kg</span><span>Reps</span><span>RIR</span><span>OK</span></div>
                 {exercise.workout_sets.map((set: any) => <div className={set.completed ? 'set-row completed' : 'set-row'} key={set.id}>
                   <strong>{set.set_number}</strong>
-                  <input inputMode="decimal" type="number" step="0.5" value={set.weight_kg ?? ''} onChange={(e) => editSetLocal(exercise.id, set.id, 'weight_kg', e.target.value)} onBlur={() => saveSet(exercise.workout_sets.find((item: any) => item.id === set.id))} />
-                  <input inputMode="numeric" type="number" value={set.reps ?? ''} onChange={(e) => editSetLocal(exercise.id, set.id, 'reps', e.target.value)} onBlur={() => saveSet(exercise.workout_sets.find((item: any) => item.id === set.id))} />
-                  <input inputMode="numeric" type="number" min="0" max="10" value={set.rir ?? ''} onChange={(e) => editSetLocal(exercise.id, set.id, 'rir', e.target.value)} onBlur={() => saveSet(exercise.workout_sets.find((item: any) => item.id === set.id))} />
+                  <input inputMode="decimal" type="number" step="0.5" value={set.weight_kg ?? ''} onChange={(e) => editSetLocal(exercise.id, set.id, 'weight_kg', e.target.value)} />
+                  <input inputMode="numeric" type="number" value={set.reps ?? ''} onChange={(e) => editSetLocal(exercise.id, set.id, 'reps', e.target.value)} />
+                  <input inputMode="numeric" type="number" min="0" max="10" value={set.rir ?? ''} onChange={(e) => editSetLocal(exercise.id, set.id, 'rir', e.target.value)} />
                   <button className={set.completed ? 'set-check active' : 'set-check'} onClick={() => toggleComplete(exercise.id, set)} aria-label={set.completed ? 'Desmarcar serie' : 'Marcar serie'}><Check size={17} /></button>
                 </div>)}
               </div>
@@ -659,7 +727,7 @@ export function WorkoutSessionPageV2() {
         })}
       </section>
 
-      <div className="sticky-finish"><div><TimerReset /><span>Todo queda guardado localmente aunque pierdas internet.</span></div><button className="primary-button" onClick={finish}><CheckCircle2 /> Finalizar entrenamiento</button></div>
+      <div className="sticky-finish"><div><TimerReset /><span>Cada dato se guarda al instante y permanece aunque cierres la app.</span></div><button className="primary-button" onClick={finish}><CheckCircle2 /> Finalizar entrenamiento</button></div>
 
       {replaceTarget && <Modal title={`Cambiar ${replaceTarget.exercise?.name ?? 'ejercicio'}`} onClose={() => { setReplaceTarget(null); setSearch(''); }}>
         <div className="search-box"><Search size={17} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar ejercicio, músculo o máquina" /></div>
