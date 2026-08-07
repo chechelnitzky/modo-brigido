@@ -53,6 +53,27 @@ function playAlarmSequence() {
   }
 }
 
+async function showTimerNotification(routineName?: string): Promise<void> {
+  if (!supportsNotifications() || window.Notification.permission !== 'granted') return;
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    await registration.showNotification('🚨 ¡Descanso terminado!', {
+      body: routineName ? `${routineName}: vuelve ahora para la siguiente serie.` : 'Vuelve ahora para hacer la siguiente serie.',
+      icon: './icon-192.png',
+      badge: './icon-192.png',
+      tag: 'modo-brigido-rest-timer',
+      renotify: true,
+      requireInteraction: true,
+      silent: false,
+      vibrate: AGGRESSIVE_VIBRATION,
+      data: { url: registration.scope }
+    });
+  } catch {
+    // El sonido y la vibración siguen funcionando como respaldo.
+  }
+}
+
 export function getTimerNotificationPermission(): TimerNotificationPermission {
   if (!supportsNotifications()) return 'unsupported';
   return window.Notification.permission;
@@ -67,8 +88,6 @@ export async function prepareTimerAlerts(schedule?: TimerAlertSchedule): Promise
     return;
   }
 
-  // WorkoutSession guarda el endAt inmediatamente después de llamar esta función.
-  // Esperamos brevemente y tomamos ese valor para agendar el push directo una sola vez.
   window.setTimeout(() => { void schedulePushForActiveTimer(); }, 280);
 }
 
@@ -79,8 +98,6 @@ export async function cancelScheduledTimerAlert(): Promise<void> {
 export async function requestTimerNotificationPermission(): Promise<TimerNotificationPermission> {
   if (!supportsNotifications()) return 'unsupported';
 
-  // En iOS, requestPermission debe ejecutarse directamente dentro del toque del usuario.
-  // Iniciamos también el audio en el mismo gesto, pero no esperamos antes de pedir permiso.
   const context = getAudioContext();
   const audioResume = context?.state === 'suspended'
     ? context.resume().catch(() => undefined)
@@ -116,7 +133,6 @@ export function startTimerNotificationLifecycle(): void {
   const onVisible = () => {
     if (document.visibilityState === 'visible') {
       void acknowledgeDueTimerPushes();
-      void clearTimerNotifications();
     }
   };
   document.addEventListener('visibilitychange', onVisible);
@@ -127,14 +143,8 @@ export function startTimerNotificationLifecycle(): void {
   onVisible();
 }
 
-export async function triggerTimerFinishedAlert(): Promise<void> {
-  if (document.visibilityState === 'visible') {
-    playAlarmSequence();
-    if ('vibrate' in navigator) navigator.vibrate(AGGRESSIVE_VIBRATION);
-    return;
-  }
-  // El push del servidor es la vía principal cuando la app está cerrada o la pantalla apagada.
-  // Este fallback ayuda si Android todavía mantiene viva la PWA.
+export async function triggerTimerFinishedAlert(routineName?: string): Promise<void> {
   playAlarmSequence();
-  if ('vibrate' in navigator) navigator.vibrate(AGGRESSIVE_VIBRATION);
+  if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(AGGRESSIVE_VIBRATION);
+  await showTimerNotification(routineName);
 }
