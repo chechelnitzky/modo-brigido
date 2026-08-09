@@ -1,5 +1,7 @@
 import { getSupabase } from './supabase';
 
+export const PACER_SYNC_EVENT = 'modo-bestia:pacer-steps-synced';
+
 export type PacerStatus = {
   configured: boolean;
   connected: boolean;
@@ -10,12 +12,18 @@ export type PacerStatus = {
   lastSyncError: string | null;
 };
 
+export type PacerActivity = {
+  activity_date: string;
+  steps: number;
+};
+
 type PacerStartResult = { authorizeUrl: string };
-type PacerSyncResult = {
+export type PacerSyncResult = {
   configured: boolean;
   connected: boolean;
   synced?: number;
   lastSyncAt?: string;
+  activities?: PacerActivity[];
 };
 
 async function invokePacer<T>(body: Record<string, unknown>): Promise<T> {

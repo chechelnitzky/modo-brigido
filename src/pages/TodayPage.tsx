@@ -11,6 +11,7 @@ import { estimateBodyCompositionForLog } from '../lib/bodyFat';
 import { prettyDate } from '../lib/date';
 import { dailyScore, numberOrNull } from '../lib/helpers';
 import { cacheDailyLog, cacheKeys, cacheProfile, getCached, saveMutation } from '../lib/offline';
+import { PACER_SYNC_EVENT, type PacerActivity } from '../lib/pacer';
 import { formatKm, stepsToKm } from '../lib/steps';
 import { getSupabase } from '../lib/supabase';
 import type { DailyLog } from '../types';
@@ -21,6 +22,24 @@ function emptyLog(userId: string, date: string): DailyLog {
     neck_cm: null, hip_cm: null, sleep_score: null, energy_score: null, hunger_score: null,
     cannabis: null, calories: null, protein_g: null, steps: null, notes: null
   };
+}
+
+const CHECKIN_FIELDS: Array<keyof DailyLog> = [
+  'weight_kg', 'waist_cm', 'neck_cm', 'hip_cm', 'sleep_score', 'energy_score', 'hunger_score',
+  'cannabis', 'calories', 'protein_g', 'notes'
+];
+
+function mergeServerWithLocal(server: DailyLog, local: DailyLog | null): DailyLog {
+  if (!local) return server;
+  const next: DailyLog = { ...server };
+  for (const key of CHECKIN_FIELDS) {
+    if ((server as any)[key] == null && (local as any)[key] != null) {
+      (next as any)[key] = (local as any)[key];
+    }
+  }
+  // Never let a fresh Pacer 0 erase a positive local/manual step value while Pacer is still warming up.
+  if ((server.steps ?? 0) === 0 && (local.steps ?? 0) > 0) next.steps = local.steps;
+  return next;
 }
 
 function Rating({ value, onChange }: { value: number | null; onChange: (value: number) => void }) {
@@ -57,11 +76,46 @@ export function TodayPage() {
         if (!cached) setError(loadError.message);
         return;
       }
-      const next = (data as DailyLog | null) ?? cached ?? emptyLog(user.id, selectedDate);
+      const server = data as DailyLog | null;
+      const next = server ? mergeServerWithLocal(server, cached) : cached ?? emptyLog(user.id, selectedDate);
       setLog(next);
       await cacheDailyLog(next);
     })();
     return () => { cancelled = true; };
+  }, [supabase, user, selectedDate]);
+
+  useEffect(() => {
+    if (!user) return;
+    const handlePacerSync = (event: Event) => {
+      const activities = ((event as CustomEvent<{ activities?: PacerActivity[] }>).detail?.activities ?? []);
+      const activity = activities.find((item) => item.activity_date === selectedDate);
+
+      // Pending offline mutations are flushed immediately before this event. Refetch the row so
+      // a locally queued morning check-in can be restored without reloading the whole page.
+      void (async () => {
+        const { data } = await supabase
+          .from('daily_logs')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('log_date', selectedDate)
+          .maybeSingle();
+        const server = data as DailyLog | null;
+        setLog((current) => {
+          if (!current) return current;
+          let next = server ? mergeServerWithLocal(server, current) : current;
+          if (activity) {
+            const incoming = Math.max(0, Math.round(Number(activity.steps) || 0));
+            const nextSteps = incoming === 0 && (next.steps ?? 0) > 0 ? next.steps : incoming;
+            next = { ...next, steps: nextSteps };
+          }
+          void cacheDailyLog(next);
+          return next;
+        });
+      })();
+    };
+
+    window.addEventListener(PACER_SYNC_EVENT, handlePacerSync);
+    return () => window.removeEventListener(PACER_SYNC_EVENT, handlePacerSync);
   }, [supabase, user, selectedDate]);
 
   const score = useMemo(() => dailyScore(log, profile), [log, profile]);
