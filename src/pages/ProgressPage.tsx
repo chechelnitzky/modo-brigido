@@ -212,7 +212,7 @@ export function ProgressPage() {
     const weeklyRate = currentAvg !== null && previousAvg !== null ? currentAvg - previousAvg : null;
     const firstWeight = weightLogs[0]?.weight_kg ?? null;
     const currentWeight = weightLogs.at(-1)?.weight_kg ?? null;
-    const weightFromStart = currentAvg !== null && firstWeight !== null ? currentAvg - Number(firstWeight) : null;
+    const totalWeightChange = currentWeight !== null && firstWeight !== null ? Number(currentWeight) - Number(firstWeight) : null;
     const firstWaist = waistLogs[0]?.waist_cm ?? null;
     const currentWaist = waistLogs.at(-1)?.waist_cm ?? null;
     const bodyFatLogs = profile
@@ -229,7 +229,7 @@ export function ProgressPage() {
       currentAvg,
       previousAvg,
       weeklyRate,
-      weightFromStart,
+      totalWeightChange,
       firstWeight,
       currentWeight,
       firstWaist,
@@ -282,8 +282,8 @@ export function ProgressPage() {
           ariaLabel="Evolución del peso"
         />
         <div style={{ display: 'grid', gap: 8, marginTop: 15, paddingTop: 13, borderTop: '1px solid rgba(255,255,255,.06)' }}>
-          <TrendDelta value={metrics.weeklyRate} label="vs. semana anterior" />
-          <TrendDelta value={metrics.weightFromStart} label="desde el inicio del registro" />
+          <TrendDelta value={metrics.weeklyRate} label="kg promedio vs. semana anterior" />
+          <TrendDelta value={metrics.totalWeightChange} label="kg total hasta hoy" />
         </div>
       </article>
 
