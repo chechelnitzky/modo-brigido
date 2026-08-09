@@ -55,6 +55,42 @@ create trigger pacer_connections_updated_at
 before update on public.pacer_connections
 for each row execute function public.set_updated_at();
 
+-- Applies only the Pacer steps field. Existing weight, waist, calories, protein, notes, etc. stay untouched.
+create or replace function public.apply_pacer_steps(p_user_id uuid, p_rows jsonb)
+returns integer
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  item jsonb;
+  applied integer := 0;
+begin
+  if p_rows is null or jsonb_typeof(p_rows) <> 'array' then
+    raise exception 'p_rows must be a JSON array';
+  end if;
+
+  for item in select value from jsonb_array_elements(p_rows)
+  loop
+    insert into public.daily_logs(user_id, log_date, steps)
+    values (
+      p_user_id,
+      (item->>'log_date')::date,
+      greatest(0, (item->>'steps')::integer)
+    )
+    on conflict (user_id, log_date) do update
+      set steps = excluded.steps,
+          updated_at = now();
+    applied := applied + 1;
+  end loop;
+
+  return applied;
+end;
+$$;
+
+revoke all on function public.apply_pacer_steps(uuid, jsonb) from public, anon, authenticated;
+grant execute on function public.apply_pacer_steps(uuid, jsonb) to service_role;
+
 -- Cron secret is generated inside Postgres and never exposed to the frontend.
 insert into public.app_secrets(secret_name, secret_value, updated_at)
 values ('pacer_cron_secret', encode(gen_random_bytes(48), 'hex'), now())
