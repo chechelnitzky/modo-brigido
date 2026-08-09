@@ -124,7 +124,7 @@ end $$;
 
 select cron.schedule(
   'pacer-hourly-sync',
-  '17 * * * *',
+  '*/15 * * * *',
   $$
   select net.http_post(
     url := 'https://ktyivafkrniwtgcgdksh.supabase.co/functions/v1/pacer-integration',

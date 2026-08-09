@@ -3,7 +3,8 @@ import { useAuth } from '../context/AuthContext';
 import { syncPendingMutations } from '../lib/offline';
 import { PACER_SYNC_EVENT, syncPacerSteps } from '../lib/pacer';
 
-const SYNC_COOLDOWN_MS = 60_000;
+const SYNC_COOLDOWN_MS = 30_000;
+const FOREGROUND_REFRESH_MS = 2 * 60_000;
 
 export function PacerAutoSync() {
   const { user } = useAuth();
@@ -22,10 +23,11 @@ export function PacerAutoSync() {
 
       runningRef.current = true;
       try {
-        // Flush locally saved check-ins before Pacer touches today's steps.
+        // Offline remains a safety net only: if anything was queued, send it first.
         await syncPendingMutations();
 
-        // Today + yesterday is enough for normal foreground refreshes.
+        // Pacer OpenAPI is cloud-backed. Refresh today + yesterday on entry and while visible
+        // so a delayed phone -> Pacer Cloud upload appears in Modo Bestia as soon as possible.
         const result = await syncPacerSteps(2);
         if (result.connected) {
           localStorage.setItem(storageKey, String(Date.now()));
@@ -34,7 +36,7 @@ export function PacerAutoSync() {
           }));
         }
       } catch {
-        // Auto-sync is best effort. Manual sync in Settings remains available for diagnostics.
+        // Best effort; Settings still exposes manual sync for diagnostics.
       } finally {
         runningRef.current = false;
       }
@@ -47,12 +49,14 @@ export function PacerAutoSync() {
     };
     const onPageShow = () => void syncNow();
     const onOnline = () => void syncNow();
+    const interval = window.setInterval(() => void syncNow(), FOREGROUND_REFRESH_MS);
 
     document.addEventListener('visibilitychange', onVisibilityChange);
     window.addEventListener('pageshow', onPageShow);
     window.addEventListener('online', onOnline);
 
     return () => {
+      window.clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('pageshow', onPageShow);
       window.removeEventListener('online', onOnline);

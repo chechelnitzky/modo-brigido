@@ -1,4 +1,4 @@
-import { Activity, Download, Footprints, LogOut, RotateCcw, Ruler, Save, Server, Settings, Upload } from 'lucide-react';
+import { Activity, Download, Footprints, LogOut, RotateCcw, Ruler, Server, Settings, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { PacerIntegrationPanel } from '../components/PacerIntegrationPanel';
 import { useAuth } from '../context/AuthContext';
@@ -11,17 +11,95 @@ import { cacheKeys, cacheProfile, getCached, saveMutation } from '../lib/offline
 import { getStepConversion } from '../lib/steps';
 import type { DailyLog, Profile, Sex } from '../types';
 
+const AUTOSAVE_DELAY_MS = 500;
+
+function profilePayload(next: Profile) {
+  return {
+    display_name: next.display_name,
+    timezone: next.timezone,
+    calories_target: next.calories_target,
+    protein_target: next.protein_target,
+    steps_target: next.steps_target,
+    weight_target: next.weight_target,
+    waist_target: next.waist_target,
+    sex: next.sex,
+    birth_date: next.birth_date,
+    height_cm: next.height_cm,
+    neck_cm: next.neck_cm,
+    hip_cm: next.sex === 'female' ? next.hip_cm : null,
+    steps_per_km: next.steps_per_km
+  };
+}
+
 export function SettingsPage() {
   const supabase = getSupabase();
   const { user, profile, refreshProfile, signOut } = useAuth();
   const [form, setForm] = useState<Profile | null>(profile);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [saveState, setSaveState] = useState<'saved' | 'saving' | 'offline'>('saved');
   const fileRef = useRef<HTMLInputElement>(null);
+  const formRef = useRef<Profile | null>(profile);
+  const timerRef = useRef<number | null>(null);
+  const dirtyRef = useRef(false);
+  const revisionRef = useRef(0);
 
   useEffect(() => {
+    if (dirtyRef.current) return;
     setForm(profile);
+    formRef.current = profile;
+    setSaveState('saved');
   }, [profile]);
+
+  const persistProfile = async (next: Profile, updateUi = true, revision = revisionRef.current) => {
+    if (!user) return;
+    if (updateUi) setSaveState('saving');
+    await cacheProfile(next);
+    try {
+      const result = await saveMutation({
+        operation: 'update',
+        table: 'profiles',
+        payload: { ...profilePayload(next), updated_at: new Date().toISOString() },
+        match: { id: user.id },
+        dedupeKey: `profile:${user.id}`
+      });
+      if (revision !== revisionRef.current) return;
+      dirtyRef.current = false;
+      if (updateUi) setSaveState(result === 'synced' ? 'saved' : 'offline');
+      if (updateUi && result === 'synced') await refreshProfile();
+    } catch (err) {
+      if (updateUi && revision === revisionRef.current) {
+        setError(err instanceof Error ? err.message : 'No se pudo guardar automáticamente.');
+        setSaveState(navigator.onLine ? 'saving' : 'offline');
+      }
+    }
+  };
+
+  const scheduleProfileSave = (next: Profile) => {
+    const revision = ++revisionRef.current;
+    dirtyRef.current = true;
+    setSaveState('saving');
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
+      void persistProfile(next, true, revision);
+    }, AUTOSAVE_DELAY_MS);
+  };
+
+  const updateForm = (patch: Partial<Profile>) => {
+    setError('');
+    const current = formRef.current;
+    if (!current) return;
+    const next = { ...current, ...patch };
+    formRef.current = next;
+    setForm(next);
+    scheduleProfileSave(next);
+  };
+
+  useEffect(() => () => {
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+    if (dirtyRef.current && formRef.current) void persistProfile(formRef.current, false, revisionRef.current);
+  }, []);
 
   useEffect(() => {
     if (!profile || !user) return;
@@ -36,11 +114,13 @@ export function SettingsPage() {
       if (cancelled || !log) return;
       const estimate = estimateBodyCompositionForLog(profile, log);
       if (!estimate?.estimatedTargetWeightKg || !estimate.estimatedTargetWaistCm) return;
-      setForm((current) => current ? {
-        ...current,
+      const current = formRef.current;
+      if (!current) return;
+      if (current.weight_target === estimate.estimatedTargetWeightKg && current.waist_target === estimate.estimatedTargetWaistCm) return;
+      updateForm({
         weight_target: estimate.estimatedTargetWeightKg,
         waist_target: estimate.estimatedTargetWaistCm
-      } : current);
+      });
     })();
     return () => { cancelled = true; };
   }, [profile, user, supabase]);
@@ -50,37 +130,6 @@ export function SettingsPage() {
   const stepConversion = getStepConversion(form.height_cm, form.steps_per_km);
   const stepLengthCm = stepConversion.stepLengthMeters * 100;
   const targetDistanceKm = form.steps_target / stepConversion.stepsPerKm;
-
-  const save = async () => {
-    setError('');
-    setMessage('');
-    const next = { ...form, id: user.id };
-    await cacheProfile(next);
-    const result = await saveMutation({
-      operation: 'update',
-      table: 'profiles',
-      payload: {
-        display_name: next.display_name,
-        timezone: next.timezone,
-        calories_target: next.calories_target,
-        protein_target: next.protein_target,
-        steps_target: next.steps_target,
-        weight_target: next.weight_target,
-        waist_target: next.waist_target,
-        sex: next.sex,
-        birth_date: next.birth_date,
-        height_cm: next.height_cm,
-        neck_cm: next.neck_cm,
-        hip_cm: next.sex === 'female' ? next.hip_cm : null,
-        steps_per_km: next.steps_per_km,
-        updated_at: new Date().toISOString()
-      },
-      match: { id: user.id },
-      dedupeKey: `profile:${user.id}`
-    });
-    await refreshProfile();
-    setMessage(result === 'synced' ? 'Perfil y metas guardados.' : 'Perfil guardado en el dispositivo. Se sincronizará al volver internet.');
-  };
 
   const exportData = async () => {
     setMessage('Preparando respaldo…');
@@ -130,21 +179,21 @@ export function SettingsPage() {
     }
   };
 
-  const setSex = (sex: Sex) => setForm({ ...form, sex, hip_cm: sex === 'female' ? form.hip_cm : null });
+  const setSex = (sex: Sex) => updateForm({ sex, hip_cm: sex === 'female' ? form.hip_cm : null });
 
   return (
     <div className="page-grid">
-      <section className="page-heading simple"><div><p className="eyebrow">AJUSTES</p><h1>Tu plan, tus metas</h1><p className="muted">Cada cuenta tiene objetivos y datos completamente separados.</p></div></section>
+      <section className="page-heading simple"><div><p className="eyebrow">AJUSTES</p><h1>Tu plan, tus metas</h1><p className="muted">Cada cambio se guarda automáticamente en tu cuenta.</p></div></section>
       <section className="panel">
-        <div className="section-title"><div><p className="eyebrow">PERFIL</p><h2>Metas diarias</h2></div><Settings /></div>
+        <div className="section-title"><div><p className="eyebrow">PERFIL</p><h2>Metas diarias</h2></div><span className={saveState === 'offline' ? 'status-chip orange' : 'status-chip'}>{saveState === 'saving' ? 'Guardando…' : saveState === 'offline' ? 'Guardado offline' : 'Guardado automático'}</span></div>
         <div className="form-grid">
-          <label>Nombre<input value={form.display_name ?? ''} onChange={(e) => setForm({ ...form, display_name: e.target.value })} /></label>
-          <label>Zona horaria<div className="input-action"><input value={form.timezone} onChange={(e) => setForm({ ...form, timezone: e.target.value })} /><button className="secondary-button compact" onClick={() => setForm({ ...form, timezone: detectTimezone() })}>Detectar</button></div></label>
-          <label>Calorías objetivo<input type="number" value={form.calories_target} onChange={(e) => setForm({ ...form, calories_target: Number(e.target.value) })} /></label>
-          <label>Proteína objetivo (g)<input type="number" value={form.protein_target} onChange={(e) => setForm({ ...form, protein_target: Number(e.target.value) })} /></label>
-          <label>Pasos por día<input type="number" value={form.steps_target} onChange={(e) => setForm({ ...form, steps_target: Number(e.target.value) })} /></label>
-          <label>Peso meta automático (kg)<input type="number" step="0.1" value={form.weight_target ?? ''} onChange={(e) => setForm({ ...form, weight_target: numberOrNull(e.target.value) })} /><small className="field-help">Se completa al guardar el check-in de hoy con el peso ideal Jackson & Pollock.</small></label>
-          <label>Cintura meta automática (cm)<input type="number" step="0.1" value={form.waist_target ?? ''} onChange={(e) => setForm({ ...form, waist_target: numberOrNull(e.target.value) })} /><small className="field-help">Se calcula despejando la fórmula U.S. Navy al porcentaje ideal.</small></label>
+          <label>Nombre<input value={form.display_name ?? ''} onChange={(e) => updateForm({ display_name: e.target.value })} /></label>
+          <label>Zona horaria<div className="input-action"><input value={form.timezone} onChange={(e) => updateForm({ timezone: e.target.value })} /><button className="secondary-button compact" onClick={() => updateForm({ timezone: detectTimezone() })}>Detectar</button></div></label>
+          <label>Calorías objetivo<input type="number" value={form.calories_target} onChange={(e) => updateForm({ calories_target: Number(e.target.value) })} /></label>
+          <label>Proteína objetivo (g)<input type="number" value={form.protein_target} onChange={(e) => updateForm({ protein_target: Number(e.target.value) })} /></label>
+          <label>Pasos por día<input type="number" value={form.steps_target} onChange={(e) => updateForm({ steps_target: Number(e.target.value) })} /></label>
+          <label>Peso meta automático (kg)<input type="number" step="0.1" value={form.weight_target ?? ''} onChange={(e) => updateForm({ weight_target: numberOrNull(e.target.value) })} /><small className="field-help">Se recalcula con tu check-in y también puedes ajustarlo manualmente.</small></label>
+          <label>Cintura meta automática (cm)<input type="number" step="0.1" value={form.waist_target ?? ''} onChange={(e) => updateForm({ waist_target: numberOrNull(e.target.value) })} /><small className="field-help">Se calcula despejando la fórmula U.S. Navy al porcentaje ideal.</small></label>
         </div>
       </section>
 
@@ -153,12 +202,12 @@ export function SettingsPage() {
         <p className="muted">La estimación diaria combina tu peso y cintura del check-in con estas medidas base.</p>
         <div className="form-grid">
           <label>Sexo para la fórmula<div className="segmented full"><button type="button" className={form.sex === 'male' ? 'active' : ''} onClick={() => setSex('male')}>Hombre</button><button type="button" className={form.sex === 'female' ? 'active' : ''} onClick={() => setSex('female')}>Mujer</button></div></label>
-          <label>Fecha de nacimiento<input type="date" value={form.birth_date ?? ''} onChange={(e) => setForm({ ...form, birth_date: e.target.value || null })} /></label>
-          <label><span><Ruler size={16} /> Altura (cm)</span><input type="number" step="0.1" value={form.height_cm ?? ''} onChange={(e) => setForm({ ...form, height_cm: numberOrNull(e.target.value) })} /></label>
-          <label><span><Ruler size={16} /> Cuello base (cm)</span><input type="number" step="0.1" value={form.neck_cm ?? ''} onChange={(e) => setForm({ ...form, neck_cm: numberOrNull(e.target.value) })} /><small className="field-help">Mide bajo la laringe, horizontal y sin apretar.</small></label>
-          {form.sex === 'female' && <label><span><Ruler size={16} /> Cadera base (cm)</span><input type="number" step="0.1" value={form.hip_cm ?? ''} onChange={(e) => setForm({ ...form, hip_cm: numberOrNull(e.target.value) })} /><small className="field-help">Mide la zona de mayor circunferencia.</small></label>}
+          <label>Fecha de nacimiento<input type="date" value={form.birth_date ?? ''} onChange={(e) => updateForm({ birth_date: e.target.value || null })} /></label>
+          <label><span><Ruler size={16} /> Altura (cm)</span><input type="number" step="0.1" value={form.height_cm ?? ''} onChange={(e) => updateForm({ height_cm: numberOrNull(e.target.value) })} /></label>
+          <label><span><Ruler size={16} /> Cuello base (cm)</span><input type="number" step="0.1" value={form.neck_cm ?? ''} onChange={(e) => updateForm({ neck_cm: numberOrNull(e.target.value) })} /><small className="field-help">Mide bajo la laringe, horizontal y sin apretar.</small></label>
+          {form.sex === 'female' && <label><span><Ruler size={16} /> Cadera base (cm)</span><input type="number" step="0.1" value={form.hip_cm ?? ''} onChange={(e) => updateForm({ hip_cm: numberOrNull(e.target.value) })} /><small className="field-help">Mide la zona de mayor circunferencia.</small></label>}
         </div>
-        <div className="alert success">Al guardar el registro de hoy, la app actualizará automáticamente el peso meta y la cintura meta.</div>
+        <div className="alert success">Las metas derivadas se actualizan automáticamente cuando cambian tus medidas.</div>
       </section>
 
       <section className="panel step-calibration-panel">
@@ -175,7 +224,7 @@ export function SettingsPage() {
               step="1"
               value={form.steps_per_km ?? ''}
               placeholder={Math.round(getStepConversion(form.height_cm, null).stepsPerKm).toString()}
-              onChange={(event) => setForm({ ...form, steps_per_km: numberOrNull(event.target.value) })}
+              onChange={(event) => updateForm({ steps_per_km: numberOrNull(event.target.value) })}
             />
             <small className="field-help">Déjalo vacío para seguir usando la estimación automática por altura.</small>
           </label>
@@ -186,12 +235,11 @@ export function SettingsPage() {
             <small>Tu meta de {form.steps_target.toLocaleString('es-CL')} pasos equivale a {targetDistanceKm.toLocaleString('es-CL', { maximumFractionDigits: 2 })} km.</small>
           </div>
         </div>
-        {form.steps_per_km && <button type="button" className="secondary-button compact step-calibration-reset" onClick={() => setForm({ ...form, steps_per_km: null })}><RotateCcw size={15} /> Volver al cálculo por altura</button>}
+        {form.steps_per_km && <button type="button" className="secondary-button compact step-calibration-reset" onClick={() => updateForm({ steps_per_km: null })}><RotateCcw size={15} /> Volver al cálculo por altura</button>}
       </section>
 
       <PacerIntegrationPanel />
 
-      <button className="primary-button settings-save" onClick={save}><Save size={18} /> Guardar perfil y metas</button>
       <section className="panel"><div className="section-title"><div><p className="eyebrow">DATOS</p><h2>Respaldo e importación</h2></div><Server /></div><p className="muted">Supabase guarda la información en línea. Este respaldo JSON te da una copia adicional independiente.</p><div className="button-row"><button className="secondary-button" onClick={exportData}><Download size={17} /> Exportar respaldo</button><button className="secondary-button" onClick={() => fileRef.current?.click()}><Upload size={17} /> Importar respaldo</button><input hidden ref={fileRef} type="file" accept="application/json" onChange={(e) => e.target.files?.[0] && importData(e.target.files[0])} /></div></section>
       {message && <div className="alert success">{message}</div>}{error && <div className="alert error">{error}</div>}
       <section className="danger-zone"><button className="secondary-button" onClick={signOut}><LogOut size={17} /> Cerrar sesión</button><button className="danger-button" onClick={() => { clearAppConfig(); window.location.reload(); }}><Server size={17} /> Cambiar servidor Supabase</button></section>
