@@ -42,18 +42,17 @@ export function SettingsPage() {
   const formRef = useRef<Profile | null>(profile);
   const timerRef = useRef<number | null>(null);
   const dirtyRef = useRef(false);
-  const saveSequenceRef = useRef(0);
+  const revisionRef = useRef(0);
 
   useEffect(() => {
+    if (dirtyRef.current) return;
     setForm(profile);
     formRef.current = profile;
-    dirtyRef.current = false;
     setSaveState('saved');
   }, [profile]);
 
-  const persistProfile = async (next: Profile, updateUi = true) => {
+  const persistProfile = async (next: Profile, updateUi = true, revision = revisionRef.current) => {
     if (!user) return;
-    const sequence = ++saveSequenceRef.current;
     if (updateUi) setSaveState('saving');
     await cacheProfile(next);
     try {
@@ -64,13 +63,12 @@ export function SettingsPage() {
         match: { id: user.id },
         dedupeKey: `profile:${user.id}`
       });
-      if (sequence === saveSequenceRef.current) {
-        dirtyRef.current = false;
-        if (updateUi) setSaveState(result === 'synced' ? 'saved' : 'offline');
-      }
+      if (revision !== revisionRef.current) return;
+      dirtyRef.current = false;
+      if (updateUi) setSaveState(result === 'synced' ? 'saved' : 'offline');
       if (updateUi && result === 'synced') await refreshProfile();
     } catch (err) {
-      if (updateUi) {
+      if (updateUi && revision === revisionRef.current) {
         setError(err instanceof Error ? err.message : 'No se pudo guardar automáticamente.');
         setSaveState(navigator.onLine ? 'saving' : 'offline');
       }
@@ -78,29 +76,29 @@ export function SettingsPage() {
   };
 
   const scheduleProfileSave = (next: Profile) => {
+    const revision = ++revisionRef.current;
     dirtyRef.current = true;
     setSaveState('saving');
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);
     timerRef.current = window.setTimeout(() => {
       timerRef.current = null;
-      void persistProfile(next);
+      void persistProfile(next, true, revision);
     }, AUTOSAVE_DELAY_MS);
   };
 
   const updateForm = (patch: Partial<Profile>) => {
     setError('');
-    setForm((current) => {
-      if (!current) return current;
-      const next = { ...current, ...patch };
-      formRef.current = next;
-      scheduleProfileSave(next);
-      return next;
-    });
+    const current = formRef.current;
+    if (!current) return;
+    const next = { ...current, ...patch };
+    formRef.current = next;
+    setForm(next);
+    scheduleProfileSave(next);
   };
 
   useEffect(() => () => {
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);
-    if (dirtyRef.current && formRef.current) void persistProfile(formRef.current, false);
+    if (dirtyRef.current && formRef.current) void persistProfile(formRef.current, false, revisionRef.current);
   }, []);
 
   useEffect(() => {
