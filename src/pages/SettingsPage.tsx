@@ -1,5 +1,6 @@
 import { Activity, Download, Footprints, LogOut, RotateCcw, Ruler, Save, Server, Settings, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { PacerIntegrationPanel } from '../components/PacerIntegrationPanel';
 import { useAuth } from '../context/AuthContext';
 import { clearAppConfig } from '../lib/config';
 import { dateInTimezone, detectTimezone } from '../lib/date';
@@ -187,6 +188,8 @@ export function SettingsPage() {
         </div>
         {form.steps_per_km && <button type="button" className="secondary-button compact step-calibration-reset" onClick={() => setForm({ ...form, steps_per_km: null })}><RotateCcw size={15} /> Volver al cálculo por altura</button>}
       </section>
+
+      <PacerIntegrationPanel />
 
       <button className="primary-button settings-save" onClick={save}><Save size={18} /> Guardar perfil y metas</button>
       <section className="panel"><div className="section-title"><div><p className="eyebrow">DATOS</p><h2>Respaldo e importación</h2></div><Server /></div><p className="muted">Supabase guarda la información en línea. Este respaldo JSON te da una copia adicional independiente.</p><div className="button-row"><button className="secondary-button" onClick={exportData}><Download size={17} /> Exportar respaldo</button><button className="secondary-button" onClick={() => fileRef.current?.click()}><Upload size={17} /> Importar respaldo</button><input hidden ref={fileRef} type="file" accept="application/json" onChange={(e) => e.target.files?.[0] && importData(e.target.files[0])} /></div></section>
