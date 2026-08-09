@@ -1,5 +1,7 @@
 import { getSupabase } from './supabase';
 
+export const PACER_SYNC_EVENT = 'modo-bestia:pacer-steps-synced';
+
 export type PacerStatus = {
   configured: boolean;
   connected: boolean;
