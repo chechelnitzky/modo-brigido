@@ -114,6 +114,12 @@ async function deleteQueueItem(id: number): Promise<void> {
   await withStore(QUEUE_STORE, 'readwrite', (store) => store.delete(id));
 }
 
+async function deleteQueueItemsByDedupeKey(dedupeKey: string): Promise<void> {
+  const matching = (await getQueue()).filter((item) => item.dedupeKey === dedupeKey && item.id !== undefined);
+  for (const item of matching) await deleteQueueItem(item.id as number);
+  emitStatus({ pending: (await getQueue()).length });
+}
+
 export async function queueMutation(mutation: Omit<OfflineMutation, 'createdAt'>): Promise<void> {
   const existing = mutation.dedupeKey
     ? (await getQueue()).filter((item) => item.dedupeKey === mutation.dedupeKey)
@@ -138,7 +144,7 @@ export async function queueMutation(mutation: Omit<OfflineMutation, 'createdAt'>
   emitStatus({ pending });
 }
 
-async function runMutation(client: SupabaseClient, mutation: OfflineMutation): Promise<void> {
+async function runMutation(client: SupabaseClient, mutation: OfflineMutation | Omit<OfflineMutation, 'createdAt'>): Promise<void> {
   let query: any;
   if (mutation.operation === 'upsert') {
     query = client.from(mutation.table).upsert(mutation.payload as any, mutation.onConflict ? { onConflict: mutation.onConflict } : undefined);
@@ -156,37 +162,51 @@ async function runMutation(client: SupabaseClient, mutation: OfflineMutation): P
 export async function syncPendingMutations(): Promise<void> {
   if (syncPromise) return syncPromise;
   syncPromise = (async () => {
-    let queued = await getQueue();
+    const queued = await getQueue();
     emitStatus({ pending: queued.length });
     if (!navigator.onLine || queued.length === 0) return;
 
     emitStatus({ syncing: true, lastError: null });
+    let lastError: string | null = null;
     try {
       const client = getSupabase();
-      while (navigator.onLine && queued.length > 0) {
-        for (const mutation of queued.sort((a, b) => (a.id ?? 0) - (b.id ?? 0))) {
+      for (const mutation of queued.sort((a, b) => (a.id ?? 0) - (b.id ?? 0))) {
+        if (!navigator.onLine) break;
+        try {
           await runMutation(client, mutation);
           if (mutation.id !== undefined) await deleteQueueItem(mutation.id);
-          emitStatus({ pending: Math.max(0, status.pending - 1) });
+        } catch (error) {
+          // One broken/stale mutation must not block every later save in the queue.
+          lastError = error instanceof Error ? error.message : 'No se pudo sincronizar un cambio.';
         }
-        queued = await getQueue();
       }
-      emitStatus({ lastError: null });
-    } catch (error) {
-      emitStatus({ lastError: error instanceof Error ? error.message : 'No se pudo sincronizar.' });
     } finally {
-      emitStatus({ syncing: false, pending: (await getQueue()).length });
+      emitStatus({ syncing: false, pending: (await getQueue()).length, lastError });
     }
   })().finally(() => { syncPromise = null; });
   return syncPromise;
 }
 
 export async function saveMutation(mutation: Omit<OfflineMutation, 'createdAt'>): Promise<'synced' | 'queued'> {
-  await queueMutation(mutation);
+  // Normal mode: when internet is available, Supabase is the primary write target.
+  // IndexedDB is only a fallback if that direct write truly fails.
   if (navigator.onLine) {
-    await syncPendingMutations();
-    return (await getQueue()).some((item) => item.dedupeKey === mutation.dedupeKey) ? 'queued' : 'synced';
+    try {
+      const client = getSupabase();
+      await runMutation(client, mutation);
+      if (mutation.dedupeKey) await deleteQueueItemsByDedupeKey(mutation.dedupeKey);
+      emitStatus({ lastError: null, pending: (await getQueue()).length });
+      // Retry any unrelated older pending writes without blocking this successful save.
+      void syncPendingMutations();
+      return 'synced';
+    } catch (error) {
+      await queueMutation(mutation);
+      emitStatus({ lastError: error instanceof Error ? error.message : 'No se pudo guardar en línea.' });
+      return 'queued';
+    }
   }
+
+  await queueMutation(mutation);
   return 'queued';
 }
 
