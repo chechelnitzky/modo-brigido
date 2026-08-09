@@ -73,6 +73,22 @@ export function NutritionPage() {
     return () => { cancelled = true; };
   }, [supabase, user, selectedDate]);
 
+  useEffect(() => () => {
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+    timerRef.current = null;
+    const patch = pendingRef.current;
+    pendingRef.current = {};
+    if (user && Object.keys(patch).length) {
+      void saveMutation({
+        operation: 'upsert',
+        table: 'daily_logs',
+        payload: { user_id: user.id, log_date: selectedDate, ...patch, updated_at: new Date().toISOString() },
+        onConflict: 'user_id,log_date',
+        dedupeKey: `nutrition-autosave:${user.id}:${selectedDate}`
+      });
+    }
+  }, [user, selectedDate]);
+
   if (!log || !profile || !user) return <div className="page-loading">Cargando nutrición…</div>;
 
   const flush = () => {
