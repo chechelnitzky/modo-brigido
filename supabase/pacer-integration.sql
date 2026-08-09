@@ -50,6 +50,21 @@ revoke all on public.pacer_connections from anon, authenticated;
 revoke all on public.pacer_oauth_states from anon, authenticated;
 revoke all on public.pacer_daily_activity from anon, authenticated;
 
+drop policy if exists "pacer connections deny clients" on public.pacer_connections;
+create policy "pacer connections deny clients"
+on public.pacer_connections for all to anon, authenticated
+using (false) with check (false);
+
+drop policy if exists "pacer oauth states deny clients" on public.pacer_oauth_states;
+create policy "pacer oauth states deny clients"
+on public.pacer_oauth_states for all to anon, authenticated
+using (false) with check (false);
+
+drop policy if exists "pacer daily activity deny clients" on public.pacer_daily_activity;
+create policy "pacer daily activity deny clients"
+on public.pacer_daily_activity for all to anon, authenticated
+using (false) with check (false);
+
 drop trigger if exists pacer_connections_updated_at on public.pacer_connections;
 create trigger pacer_connections_updated_at
 before update on public.pacer_connections
