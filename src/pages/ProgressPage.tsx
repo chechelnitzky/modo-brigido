@@ -11,6 +11,12 @@ import { cacheDailyLogs, cacheKeys, getCached, setCached } from '../lib/offline'
 import { getSupabase } from '../lib/supabase';
 import type { DailyLog } from '../types';
 
+type AnalysisLog = DailyLog & {
+  carriedWeight: boolean;
+  carriedWaist: boolean;
+  syntheticDay: boolean;
+};
+
 function mergeLogsByDate(...lists: DailyLog[][]): DailyLog[] {
   const byDate = new Map<string, DailyLog>();
   for (const list of lists) {
@@ -26,6 +32,74 @@ function shiftDateKey(dateKey: string, days: number): string {
   const date = new Date(Date.UTC(year, month - 1, day));
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
+}
+
+function sundayOfWeek(dateKey: string): string {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() - date.getUTCDay());
+  return date.toISOString().slice(0, 10);
+}
+
+function lastCompletedSaturday(todayKey: string): string {
+  const currentSunday = sundayOfWeek(todayKey);
+  const [year, month, day] = todayKey.split('-').map(Number);
+  const today = new Date(Date.UTC(year, month - 1, day));
+  if (today.getUTCDay() === 6) return todayKey;
+  return shiftDateKey(currentSunday, -1);
+}
+
+function buildDailyAnalysisLogs(logs: DailyLog[], todayKey: string): AnalysisLog[] {
+  const eligible = logs
+    .filter((log) => log.log_date <= todayKey)
+    .sort((a, b) => a.log_date.localeCompare(b.log_date));
+  if (!eligible.length) return [];
+
+  const firstUseful = eligible.find((log) => log.weight_kg !== null || log.waist_cm !== null);
+  if (!firstUseful) return [];
+
+  const byDate = new Map(eligible.map((log) => [log.log_date, log]));
+  let lastWeight: number | null = null;
+  let lastWaist: number | null = null;
+  const result: AnalysisLog[] = [];
+
+  for (let dateKey = firstUseful.log_date; dateKey <= todayKey; dateKey = shiftDateKey(dateKey, 1)) {
+    const actual = byDate.get(dateKey) ?? null;
+    const actualWeight = actual?.weight_kg ?? null;
+    const actualWaist = actual?.waist_cm ?? null;
+
+    if (actualWeight !== null) lastWeight = Number(actualWeight);
+    if (actualWaist !== null) lastWaist = Number(actualWaist);
+
+    const base: DailyLog = actual ?? {
+      user_id: firstUseful.user_id,
+      log_date: dateKey,
+      weight_kg: null,
+      waist_cm: null,
+      neck_cm: null,
+      hip_cm: null,
+      sleep_score: null,
+      energy_score: null,
+      hunger_score: null,
+      cannabis: null,
+      calories: null,
+      protein_g: null,
+      steps: null,
+      notes: null
+    };
+
+    result.push({
+      ...base,
+      log_date: dateKey,
+      weight_kg: actualWeight ?? lastWeight,
+      waist_cm: actualWaist ?? lastWaist,
+      carriedWeight: actualWeight === null && lastWeight !== null,
+      carriedWaist: actualWaist === null && lastWaist !== null,
+      syntheticDay: actual === null
+    });
+  }
+
+  return result;
 }
 
 function fullDate(dateKey: string): string {
@@ -96,8 +170,6 @@ export function ProgressPage() {
       ]);
       if (cancelled) return;
 
-      // El registro local de hoy gana sobre una respuesta remota más antigua. Así el gráfico
-      // incluye inmediatamente el día actual cuando el check-in ya fue guardado en el dispositivo.
       const latestCachedToday = await getCached<DailyLog>(cacheKeys.daily(user.id, todayKey));
       const nextLogs = mergeLogsByDate(
         (logResult.data ?? []) as DailyLog[],
@@ -117,17 +189,24 @@ export function ProgressPage() {
 
   const metrics = useMemo(() => {
     const eligibleLogs = logs.filter((log) => log.log_date <= todayKey);
-    const weightLogs = eligibleLogs.filter((log) => log.weight_kg !== null);
-    const waistLogs = eligibleLogs.filter((log) => log.waist_cm !== null);
-    const currentPeriodStart = shiftDateKey(todayKey, -6);
-    const previousPeriodStart = shiftDateKey(todayKey, -13);
-    const previousPeriodEnd = shiftDateKey(todayKey, -7);
+    const analysisLogs = buildDailyAnalysisLogs(eligibleLogs, todayKey);
+    const weightLogs = analysisLogs.filter((log) => log.weight_kg !== null);
+    const waistLogs = analysisLogs.filter((log) => log.waist_cm !== null);
+
+    // Cada bloque semanal es siempre domingo-sábado. Los días sin medición pasada
+    // heredan la última medición conocida, pero no se crean check-ins falsos en la base de datos.
+    const currentPeriodEnd = lastCompletedSaturday(todayKey);
+    const currentPeriodStart = shiftDateKey(currentPeriodEnd, -6);
+    const previousPeriodEnd = shiftDateKey(currentPeriodStart, -1);
+    const previousPeriodStart = shiftDateKey(previousPeriodEnd, -6);
+
     const currentPeriodWeights = weightLogs
-      .filter((log) => log.log_date >= currentPeriodStart && log.log_date <= todayKey)
+      .filter((log) => log.log_date >= currentPeriodStart && log.log_date <= currentPeriodEnd)
       .map((log) => Number(log.weight_kg));
     const previousPeriodWeights = weightLogs
       .filter((log) => log.log_date >= previousPeriodStart && log.log_date <= previousPeriodEnd)
       .map((log) => Number(log.weight_kg));
+
     const currentAvg = average(currentPeriodWeights);
     const previousAvg = average(previousPeriodWeights);
     const weeklyRate = currentAvg !== null && previousAvg !== null ? currentAvg - previousAvg : null;
@@ -137,13 +216,14 @@ export function ProgressPage() {
     const firstWaist = waistLogs[0]?.waist_cm ?? null;
     const currentWaist = waistLogs.at(-1)?.waist_cm ?? null;
     const bodyFatLogs = profile
-      ? eligibleLogs.flatMap((log) => {
+      ? analysisLogs.flatMap((log) => {
           const estimate = estimateBodyCompositionForLog(profile, log);
           return estimate ? [{ log, estimate }] : [];
         })
       : [];
 
     return {
+      analysisLogs,
       weightLogs,
       waistLogs,
       currentAvg,
@@ -154,6 +234,8 @@ export function ProgressPage() {
       currentWeight,
       firstWaist,
       currentWaist,
+      currentPeriodStart,
+      currentPeriodEnd,
       bodyFatLogs
     };
   }, [logs, profile, todayKey]);
@@ -185,18 +267,22 @@ export function ProgressPage() {
     <section className="two-column charts-grid">
       <article className="panel chart-card">
         <div className="section-title">
-          <div><span>Peso promedio 7 días</span><h2>{metrics.currentAvg?.toFixed(1) ?? '—'} kg</h2></div>
+          <div>
+            <span>Peso promedio 7 días</span>
+            <h2>{metrics.currentAvg?.toFixed(1) ?? '—'} kg</h2>
+            <small className="muted">Semana {shortDate(metrics.currentPeriodStart)}–{shortDate(metrics.currentPeriodEnd)} · dom–sáb</small>
+          </div>
           <Scale />
         </div>
         <Sparkline
           values={weightChart.map((log) => Number(log.weight_kg))}
           labels={weightChart.map((log) => shortDate(log.log_date))}
           tooltipLabels={weightChart.map((log) => fullDate(log.log_date))}
-          tooltipValues={weightChart.map((log) => `${localizedNumber(Number(log.weight_kg), 1)} kg`)}
+          tooltipValues={weightChart.map((log) => `${localizedNumber(Number(log.weight_kg), 1)} kg${log.carriedWeight ? ' · repetido' : ''}`)}
           ariaLabel="Evolución del peso"
         />
         <div style={{ display: 'grid', gap: 8, marginTop: 15, paddingTop: 13, borderTop: '1px solid rgba(255,255,255,.06)' }}>
-          <TrendDelta value={metrics.weeklyRate} label="vs. 7 días anteriores" />
+          <TrendDelta value={metrics.weeklyRate} label="vs. semana anterior" />
           <TrendDelta value={metrics.weightFromStart} label="desde el inicio del registro" />
         </div>
       </article>
@@ -210,7 +296,7 @@ export function ProgressPage() {
           values={waistChart.map((log) => Number(log.waist_cm))}
           labels={waistChart.map((log) => shortDate(log.log_date))}
           tooltipLabels={waistChart.map((log) => fullDate(log.log_date))}
-          tooltipValues={waistChart.map((log) => `${localizedNumber(Number(log.waist_cm), 1)} cm`)}
+          tooltipValues={waistChart.map((log) => `${localizedNumber(Number(log.waist_cm), 1)} cm${log.carriedWaist ? ' · repetido' : ''}`)}
           ariaLabel="Evolución de la cintura"
         />
         <div className="chart-footer">
@@ -229,7 +315,7 @@ export function ProgressPage() {
         values={bodyFatChart.map((item) => item.estimate.bodyFatPercentage)}
         labels={bodyFatChart.map((item) => shortDate(item.log.log_date))}
         tooltipLabels={bodyFatChart.map((item) => fullDate(item.log.log_date))}
-        tooltipValues={bodyFatChart.map((item) => `${localizedNumber(item.estimate.bodyFatPercentage, 1)}% grasa`)}
+        tooltipValues={bodyFatChart.map((item) => `${localizedNumber(item.estimate.bodyFatPercentage, 1)}% grasa${item.log.carriedWeight || item.log.carriedWaist ? ' · repetido' : ''}`)}
         ariaLabel="Evolución del porcentaje de grasa corporal"
       />
       <div className="chart-footer">
