@@ -58,7 +58,7 @@ export function PacerIntegrationPanel() {
     setMessage('');
     try {
       const result = await syncPacerSteps(31);
-      setMessage(`Pacer sincronizado${typeof result.synced === 'number' ? `: ${result.synced} días actualizados` : ''}.`);
+      setMessage(`Pacer Cloud sincronizado${typeof result.synced === 'number' ? `: ${result.synced} días actualizados` : ''}.`);
       await refreshStatus();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudieron sincronizar los pasos.');
@@ -89,7 +89,7 @@ export function PacerIntegrationPanel() {
         <div><p className="eyebrow">PASOS AUTOMÁTICOS</p><h2>Pacer</h2></div>
         <Footprints />
       </div>
-      <p className="muted">Pacer cuenta los pasos en Android y iPhone. Modo Bestia los importa a tu registro diario sin guardar tus credenciales de Pacer en el navegador.</p>
+      <p className="muted">Modo Bestia consulta Pacer Cloud. Al abrir o volver a la app intenta actualizar de inmediato y, mientras está abierta, vuelve a consultar periódicamente.</p>
 
       {loading && <div className="alert">Revisando conexión con Pacer…</div>}
 
@@ -105,8 +105,8 @@ export function PacerIntegrationPanel() {
         <div className="alert success">
           <CheckCircle2 size={16} />
           <span>
-            Conectado{status.displayName ? ` como ${status.displayName}` : ''}. Última sincronización: {formatDateTime(status.lastSyncAt)}.
-            {' '}La sincronización automática corre cada hora.
+            Conectado{status.displayName ? ` como ${status.displayName}` : ''}. Última lectura de Pacer Cloud: {formatDateTime(status.lastSyncAt)}.
+            {' '}El servidor también revisa cada 15 minutos.
           </span>
         </div>
       )}
@@ -132,7 +132,7 @@ export function PacerIntegrationPanel() {
           </>
         )}
       </div>
-      <small className="field-help">Al conectar se importan hasta 31 días. Después el servidor actualiza hoy y ayer cada hora para corregir cualquier sincronización atrasada de Pacer.</small>
+      <small className="field-help">Pacer puede mostrar pasos en el teléfono antes de subirlos a su nube. En ese caso Modo Bestia los verá apenas Pacer Cloud los publique; por eso hacemos reintentos automáticos sin reemplazar tus demás datos.</small>
     </section>
   );
 }
