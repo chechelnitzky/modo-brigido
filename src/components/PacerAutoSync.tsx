@@ -1,12 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { syncPendingMutations } from '../lib/offline';
 import { syncPacerSteps } from '../lib/pacer';
 
 const SYNC_COOLDOWN_MS = 60_000;
-
-function isTodayRoute() {
-  return window.location.hash === '' || window.location.hash === '#' || window.location.hash === '#/';
-}
+export const PACER_SYNC_EVENT = 'modo-bestia:pacer-steps-synced';
 
 export function PacerAutoSync() {
   const { user } = useAuth();
@@ -20,19 +18,21 @@ export function PacerAutoSync() {
     const syncNow = async () => {
       if (runningRef.current || !navigator.onLine || document.visibilityState === 'hidden') return;
 
-      const lastAttempt = Number(localStorage.getItem(storageKey) || 0);
-      if (Date.now() - lastAttempt < SYNC_COOLDOWN_MS) return;
+      const lastSuccess = Number(localStorage.getItem(storageKey) || 0);
+      if (Date.now() - lastSuccess < SYNC_COOLDOWN_MS) return;
 
-      // Mark before the request so a reload after a successful sync cannot create a loop.
-      localStorage.setItem(storageKey, String(Date.now()));
       runningRef.current = true;
-
       try {
-        // The first OAuth connection already imports up to 31 days. On normal app entry,
-        // today + yesterday is enough and keeps the Pacer request lightweight.
+        // Always flush locally saved check-ins before Pacer touches today's steps.
+        await syncPendingMutations();
+
+        // Today + yesterday is enough for normal foreground refreshes.
         const result = await syncPacerSteps(2);
-        if (result.connected && isTodayRoute()) {
-          window.location.reload();
+        if (result.connected) {
+          localStorage.setItem(storageKey, String(Date.now()));
+          window.dispatchEvent(new CustomEvent(PACER_SYNC_EVENT, {
+            detail: { activities: result.activities ?? [], syncedAt: result.lastSyncAt ?? null }
+          }));
         }
       } catch {
         // Auto-sync is best effort. Manual sync in Settings remains available for diagnostics.
