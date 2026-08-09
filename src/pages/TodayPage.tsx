@@ -1,7 +1,6 @@
 import { Activity, CalendarDays, Check, ChevronRight, CloudOff, Dumbbell, Flame, Footprints, Moon, Ruler, Save, Scale, Zap } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { BodyCompositionCard } from '../components/BodyCompositionCard';
 import { DecimalInput } from '../components/DecimalInput';
 import { ProgressBar } from '../components/ProgressBar';
 import { ScoreRing } from '../components/ScoreRing';
@@ -201,7 +200,6 @@ export function TodayPage() {
         <button className="primary-button" onClick={save} disabled={saving}><Save size={18} /> {saving ? 'Guardando…' : `Guardar ${isToday ? 'el día' : 'esta fecha'}`}</button>
       </section>
 
-      <BodyCompositionCard profile={profile} log={log} />
       <Link className="action-card" to="/entreno"><div className="metric-icon"><Dumbbell /></div><div><span>Entrenamiento</span><strong>Ver rutina y registrar series</strong></div><ChevronRight /></Link>
     </div>
   );
