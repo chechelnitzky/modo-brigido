@@ -72,15 +72,18 @@ function shiftDate(dateKey: string, days: number) {
 
 function dateInTimezone(timezone: string) {
   try {
-    return new Intl.DateTimeFormat("en-CA", {
+    const parts = new Intl.DateTimeFormat("en-US", {
       timeZone: timezone,
       year: "numeric",
       month: "2-digit",
       day: "2-digit"
-    }).format(new Date());
+    }).formatToParts(new Date());
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    if (values.year && values.month && values.day) return `${values.year}-${values.month}-${values.day}`;
   } catch {
-    return new Date().toISOString().slice(0, 10);
+    // Fall through to UTC.
   }
+  return new Date().toISOString().slice(0, 10);
 }
 
 function safeError(error: unknown) {
@@ -198,13 +201,10 @@ async function syncPacerRange(
       const { error: activityError } = await admin.from("pacer_daily_activity").upsert(rows, { onConflict: "user_id,activity_date" });
       if (activityError) throw new Error(`No se pudo guardar la actividad: ${activityError.message}`);
 
-      const dailyRows = rows.map((row) => ({
-        user_id: row.user_id,
-        log_date: row.activity_date,
-        steps: row.steps,
-        updated_at: new Date().toISOString()
-      }));
-      const { error: dailyError } = await admin.from("daily_logs").upsert(dailyRows, { onConflict: "user_id,log_date" });
+      const { error: dailyError } = await admin.rpc("apply_pacer_steps", {
+        p_user_id: connection.user_id,
+        p_rows: rows.map((row) => ({ log_date: row.activity_date, steps: row.steps }))
+      });
       if (dailyError) throw new Error(`No se pudieron actualizar los pasos: ${dailyError.message}`);
     }
 
