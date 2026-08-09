@@ -1,10 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { syncPendingMutations } from '../lib/offline';
-import { syncPacerSteps } from '../lib/pacer';
+import { PACER_SYNC_EVENT, syncPacerSteps } from '../lib/pacer';
 
 const SYNC_COOLDOWN_MS = 60_000;
-export const PACER_SYNC_EVENT = 'modo-bestia:pacer-steps-synced';
 
 export function PacerAutoSync() {
   const { user } = useAuth();
@@ -23,7 +22,7 @@ export function PacerAutoSync() {
 
       runningRef.current = true;
       try {
-        // Always flush locally saved check-ins before Pacer touches today's steps.
+        // Flush locally saved check-ins before Pacer touches today's steps.
         await syncPendingMutations();
 
         // Today + yesterday is enough for normal foreground refreshes.
