@@ -9,7 +9,7 @@ import { useAuth } from '../context/AuthContext';
 import { useSelectedDate } from '../context/SelectedDateContext';
 import { estimateBodyCompositionForLog } from '../lib/bodyFat';
 import { prettyDate } from '../lib/date';
-import { dailyScore, numberOrNull } from '../lib/helpers';
+import { dailyScore, numberOrNull, totalSteps } from '../lib/helpers';
 import { cacheDailyLog, cacheKeys, cacheProfile, getCached, saveMutation } from '../lib/offline';
 import { PACER_SYNC_EVENT, type PacerActivity } from '../lib/pacer';
 import { formatKm, stepsToKm } from '../lib/steps';
@@ -27,7 +27,7 @@ function emptyLog(userId: string, date: string): DailyLog {
   return {
     id: crypto.randomUUID(), user_id: userId, log_date: date, weight_kg: null, waist_cm: null,
     neck_cm: null, hip_cm: null, sleep_score: null, energy_score: null, hunger_score: null,
-    cannabis: null, calories: null, protein_g: null, steps: null, notes: null
+    cannabis: null, calories: null, protein_g: null, steps: null, manual_steps: 0, notes: null
   };
 }
 
@@ -40,6 +40,7 @@ function mergeServerWithLocal(server: DailyLog, local: DailyLog | null): DailyLo
     }
   }
   if ((server.steps ?? 0) === 0 && (local.steps ?? 0) > 0) next.steps = local.steps;
+  if ((server.manual_steps ?? 0) === 0 && (local.manual_steps ?? 0) > 0) next.manual_steps = local.manual_steps;
   return next;
 }
 
@@ -249,7 +250,7 @@ export function TodayPage() {
   if (!profile || !log) return <div className="page-loading">Cargando tu día…</div>;
   const calories = log.calories ?? 0;
   const protein = log.protein_g ?? 0;
-  const steps = log.steps ?? 0;
+  const steps = totalSteps(log);
   const distanceKm = stepsToKm(steps, profile.height_cm, profile.steps_per_km);
 
   return (
@@ -299,9 +300,10 @@ export function TodayPage() {
           <label><span><Zap size={16} /> Proteína (g)</span><input inputMode="numeric" type="number" value={log.protein_g ?? ''} onChange={(e) => update('protein_g', numberOrNull(e.target.value))} /></label>
           <StepDistanceInput
             steps={log.steps}
+            extraSteps={log.manual_steps}
             heightCm={profile.height_cm}
             calibratedStepsPerKm={profile.steps_per_km}
-            onStepsChange={(value) => update('steps', value)}
+            onExtraStepsChange={(value) => update('manual_steps', value)}
           />
         </div>
         <div className="rating-grid">

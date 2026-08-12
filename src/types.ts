@@ -32,6 +32,7 @@ export type DailyLog = {
   calories: number | null;
   protein_g: number | null;
   steps: number | null;
+  manual_steps: number | null;
   notes: string | null;
 };
 

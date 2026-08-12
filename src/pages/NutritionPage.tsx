@@ -21,7 +21,7 @@ function emptyLog(userId: string, date: string): DailyLog {
   return {
     id: crypto.randomUUID(), user_id: userId, log_date: date, weight_kg: null, waist_cm: null,
     neck_cm: null, hip_cm: null, sleep_score: null, energy_score: null, hunger_score: null,
-    cannabis: null, calories: null, protein_g: null, steps: null, notes: null
+    cannabis: null, calories: null, protein_g: null, steps: null, manual_steps: 0, notes: null
   };
 }
 
@@ -32,6 +32,7 @@ function mergeServerWithLocal(server: DailyLog, local: DailyLog | null): DailyLo
     if ((server as any)[key] == null && (local as any)[key] != null) (next as any)[key] = (local as any)[key];
   }
   if ((server.steps ?? 0) === 0 && (local.steps ?? 0) > 0) next.steps = local.steps;
+  if ((server.manual_steps ?? 0) === 0 && (local.manual_steps ?? 0) > 0) next.manual_steps = local.manual_steps;
   return next;
 }
 

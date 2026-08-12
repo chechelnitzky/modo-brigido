@@ -6,7 +6,7 @@ import { Sparkline } from '../components/Sparkline';
 import { useAuth } from '../context/AuthContext';
 import { estimateBodyCompositionForLog } from '../lib/bodyFat';
 import { dateInTimezone, detectTimezone, shortDate } from '../lib/date';
-import { average } from '../lib/helpers';
+import { average, totalSteps } from '../lib/helpers';
 import { cacheDailyLogs, cacheKeys, getCached, setCached } from '../lib/offline';
 import { getSupabase } from '../lib/supabase';
 import type { DailyLog } from '../types';
@@ -85,6 +85,7 @@ function buildDailyAnalysisLogs(logs: DailyLog[], todayKey: string): AnalysisLog
       calories: null,
       protein_g: null,
       steps: null,
+      manual_steps: 0,
       notes: null
     };
 
@@ -244,7 +245,7 @@ export function ProgressPage() {
 
   const adherenceDays = logs.filter((log) => {
     const caloriesOk = (log.calories ?? 0) >= profile.calories_target - 100 && (log.calories ?? 0) <= profile.calories_target + 100;
-    return caloriesOk && (log.protein_g ?? 0) >= profile.protein_target && (log.steps ?? 0) >= profile.steps_target;
+    return caloriesOk && (log.protein_g ?? 0) >= profile.protein_target && totalSteps(log) >= profile.steps_target;
   }).length;
   const completedSessions = sessions.filter((session) => session.finished_at).length;
   const points = logs.length * 10 + adherenceDays * 60 + completedSessions * 30;
@@ -254,6 +255,8 @@ export function ProgressPage() {
   const weightChart = metrics.weightLogs.slice(-30);
   const waistChart = metrics.waistLogs.slice(-30);
   const bodyFatChart = metrics.bodyFatLogs.slice(-30);
+  const weeklySteps = logs.slice(-7).map((log) => totalSteps(log));
+  const weeklyStepsAverage = average(weeklySteps) ?? 0;
 
   return <div className="page-grid">
     <section className="page-heading simple">
@@ -342,7 +345,7 @@ export function ProgressPage() {
         let level = 0;
         if (log.weight_kg !== null) level++;
         if ((log.protein_g ?? 0) >= profile.protein_target) level++;
-        if ((log.steps ?? 0) >= profile.steps_target) level++;
+        if (totalSteps(log) >= profile.steps_target) level++;
         if ((log.calories ?? 0) >= profile.calories_target - 100 && (log.calories ?? 0) <= profile.calories_target + 100) level++;
         return <div title={log.log_date} className={`heat-cell level-${level}`} key={index} />;
       })}</div>
@@ -350,7 +353,7 @@ export function ProgressPage() {
     </section>
 
     <section className="panel weekly-summary">
-      <div><Footprints /><span>Promedio de pasos</span><strong>{Math.round(average(logs.slice(-7).map((log) => log.steps ?? 0)) ?? 0).toLocaleString('es-CL')}</strong><ProgressBar value={average(logs.slice(-7).map((log) => log.steps ?? 0)) ?? 0} max={profile.steps_target} /></div>
+      <div><Footprints /><span>Promedio de pasos</span><strong>{Math.round(weeklyStepsAverage).toLocaleString('es-CL')}</strong><ProgressBar value={weeklyStepsAverage} max={profile.steps_target} /></div>
       <div><Zap /><span>Promedio de proteína</span><strong>{Math.round(average(logs.slice(-7).map((log) => log.protein_g ?? 0)) ?? 0)} g</strong><ProgressBar value={average(logs.slice(-7).map((log) => log.protein_g ?? 0)) ?? 0} max={profile.protein_target} /></div>
     </section>
   </div>;

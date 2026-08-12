@@ -61,6 +61,52 @@
   to { transform: rotate(360deg); }
 }
 
+.step-distance-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 4px 0 7px;
+}
+
+.step-distance-section-header strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #cbd4cf;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+
+.step-distance-section-header > span {
+  color: #7f8d85;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.step-distance-extra-header strong {
+  color: var(--green);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12px;
+}
+
+.step-distance-help {
+  display: block;
+  margin: -2px 0 9px;
+  color: #85928a;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.step-distance-divider {
+  height: 1px;
+  margin: 13px 0 12px;
+  background: rgba(255, 255, 255, .07);
+}
+
 .step-distance-inputs {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 34px minmax(0, 1fr);
@@ -81,6 +127,21 @@
   font-size: 12px;
 }
 
+.step-distance-inputs-locked input[readonly] {
+  color: #aab5ae;
+  background: rgba(255, 255, 255, .025);
+  border-color: #26352c;
+  cursor: default;
+}
+
+.step-distance-extra-inputs input {
+  border-color: #36503d;
+}
+
+.step-distance-extra-inputs input:focus {
+  border-color: var(--green);
+}
+
 .step-distance-link {
   display: grid;
   width: 34px;
@@ -89,6 +150,30 @@
   color: var(--green);
   font-size: 20px;
   font-weight: 800;
+}
+
+.step-distance-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 13px;
+  padding: 10px 12px;
+  border: 1px solid rgba(112, 228, 72, .18);
+  border-radius: 12px;
+  background: rgba(112, 228, 72, .055);
+}
+
+.step-distance-total span {
+  color: #9facA4;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.step-distance-total strong {
+  color: #edf5ef;
+  font-size: 12px;
+  text-align: right;
 }
 
 .step-distance-summary {
@@ -172,5 +257,15 @@
 
   .step-distance-inputs label > span {
     font-size: 11px;
+  }
+
+  .step-distance-total {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .step-distance-total strong {
+    text-align: left;
   }
 }
