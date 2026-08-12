@@ -6,6 +6,11 @@ export function numberOrNull(value: string | number | null | undefined): number 
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+export function totalSteps(log: Pick<DailyLog, 'steps' | 'manual_steps'> | null | undefined): number {
+  if (!log) return 0;
+  return Math.max(0, Number(log.steps) || 0) + Math.max(0, Number(log.manual_steps) || 0);
+}
+
 export function dailyScore(log: DailyLog | null, profile: Profile | null): number {
   if (!log || !profile) return 0;
   let score = 0;
@@ -17,7 +22,7 @@ export function dailyScore(log: DailyLog | null, profile: Profile | null): numbe
     log.calories <= profile.calories_target + 100
   ) score += 20;
   if ((log.protein_g ?? 0) >= profile.protein_target) score += 20;
-  if ((log.steps ?? 0) >= profile.steps_target) score += 20;
+  if (totalSteps(log) >= profile.steps_target) score += 20;
   if (log.sleep_score !== null && log.energy_score !== null) score += 10;
   if (log.notes !== null || log.cannabis !== null || log.hunger_score !== null) score += 10;
   return Math.min(score, 100);
