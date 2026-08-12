@@ -1,4 +1,4 @@
-import { Footprints, RefreshCw, Route } from 'lucide-react';
+import { Footprints, Lock, RefreshCw, Route } from 'lucide-react';
 import { useState } from 'react';
 import { DecimalInput } from './DecimalInput';
 import { PACER_SYNC_EVENT, syncPacerSteps } from '../lib/pacer';
@@ -6,21 +6,29 @@ import { formatKm, getStepConversion, kmToSteps, stepsToKm } from '../lib/steps'
 
 type StepDistanceInputProps = {
   steps: number | null;
+  extraSteps: number | null;
   heightCm: number | null;
   calibratedStepsPerKm?: number | null;
-  onStepsChange: (steps: number | null) => void;
+  onExtraStepsChange: (steps: number | null) => void;
 };
 
 export function StepDistanceInput({
   steps,
+  extraSteps,
   heightCm,
   calibratedStepsPerKm,
-  onStepsChange
+  onExtraStepsChange
 }: StepDistanceInputProps) {
   const [refreshing, setRefreshing] = useState(false);
   const conversion = getStepConversion(heightCm, calibratedStepsPerKm);
-  const km = steps ? stepsToKm(steps, heightCm, calibratedStepsPerKm) : null;
-  const roundedKm = km === null ? null : Math.round(km * 100) / 100;
+  const automaticSteps = Math.max(0, Number(steps) || 0);
+  const manualSteps = Math.max(0, Number(extraSteps) || 0);
+  const totalSteps = automaticSteps + manualSteps;
+  const automaticKm = stepsToKm(automaticSteps, heightCm, calibratedStepsPerKm);
+  const manualKm = stepsToKm(manualSteps, heightCm, calibratedStepsPerKm);
+  const totalKm = stepsToKm(totalSteps, heightCm, calibratedStepsPerKm);
+  const roundedAutomaticKm = Math.round(automaticKm * 100) / 100;
+  const roundedManualKm = manualSteps > 0 ? Math.round(manualKm * 100) / 100 : null;
   const sourceLabel = conversion.source === 'calibrated'
     ? 'Calibración personalizada'
     : conversion.source === 'height'
@@ -49,7 +57,7 @@ export function StepDistanceInput({
       <div className="step-distance-title">
         <div>
           <span><Footprints size={16} /> Caminata diaria</span>
-          <small>{sourceLabel}</small>
+          <small>Pacer automático · {sourceLabel}</small>
         </div>
         <button
           type="button"
@@ -63,19 +71,18 @@ export function StepDistanceInput({
         </button>
       </div>
 
-      <div className="step-distance-inputs">
+      <div className="step-distance-section-header">
+        <strong><Lock size={13} /> Automático</strong>
+        <span>Solo lectura</span>
+      </div>
+      <div className="step-distance-inputs step-distance-inputs-locked">
         <label>
           <span>Pasos</span>
           <input
             type="text"
-            inputMode="numeric"
-            autoComplete="off"
-            pattern="[0-9]*"
-            value={steps ?? ''}
-            onChange={(event) => {
-              const cleaned = event.target.value.replace(/\D/g, '');
-              onStepsChange(cleaned === '' ? null : Number(cleaned));
-            }}
+            value={automaticSteps.toLocaleString('es-CL')}
+            readOnly
+            aria-label="Pasos automáticos desde Pacer"
           />
         </label>
 
@@ -83,17 +90,59 @@ export function StepDistanceInput({
 
         <label>
           <span><Route size={14} /> Kilómetros</span>
-          <DecimalInput
-            value={roundedKm}
-            onValueChange={(value) => onStepsChange(value === null ? null : kmToSteps(value, heightCm, calibratedStepsPerKm))}
+          <input
+            type="text"
+            value={roundedAutomaticKm.toLocaleString('es-CL', { maximumFractionDigits: 2 })}
+            readOnly
+            aria-label="Kilómetros automáticos estimados"
           />
         </label>
+      </div>
+
+      <div className="step-distance-divider" />
+
+      <div className="step-distance-section-header step-distance-extra-header">
+        <strong>+ Pasos extra no registrados</strong>
+        <span>Opcional</span>
+      </div>
+      <small className="step-distance-help">Agrégalos solo si no aparecen en Pacer, por ejemplo una caminata en trotadora sin el teléfono.</small>
+
+      <div className="step-distance-inputs step-distance-extra-inputs">
+        <label>
+          <span>Pasos extra</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            autoComplete="off"
+            pattern="[0-9]*"
+            placeholder="0"
+            value={extraSteps ?? ''}
+            onChange={(event) => {
+              const cleaned = event.target.value.replace(/\D/g, '');
+              onExtraStepsChange(cleaned === '' ? null : Number(cleaned));
+            }}
+          />
+        </label>
+
+        <div className="step-distance-link" aria-hidden="true">⇄</div>
+
+        <label>
+          <span><Route size={14} /> Km extra</span>
+          <DecimalInput
+            value={roundedManualKm}
+            onValueChange={(value) => onExtraStepsChange(value === null ? null : kmToSteps(Math.max(0, value), heightCm, calibratedStepsPerKm))}
+          />
+        </label>
+      </div>
+
+      <div className="step-distance-total">
+        <span>Total del día</span>
+        <strong>{totalSteps.toLocaleString('es-CL')} pasos · {formatKm(totalKm)} km</strong>
       </div>
 
       <small className="step-distance-summary">
         1 paso ≈ {(conversion.stepLengthMeters * 100).toLocaleString('es-CL', { maximumFractionDigits: 1 })} cm ·
         1 km ≈ {Math.round(conversion.stepsPerKm).toLocaleString('es-CL')} pasos
-        {steps ? ` · ${steps.toLocaleString('es-CL')} pasos = ${formatKm(km ?? 0)} km` : ''}
       </small>
     </div>
   );
