@@ -41,14 +41,6 @@ function sundayOfWeek(dateKey: string): string {
   return date.toISOString().slice(0, 10);
 }
 
-function lastCompletedSaturday(todayKey: string): string {
-  const currentSunday = sundayOfWeek(todayKey);
-  const [year, month, day] = todayKey.split('-').map(Number);
-  const today = new Date(Date.UTC(year, month - 1, day));
-  if (today.getUTCDay() === 6) return todayKey;
-  return shiftDateKey(currentSunday, -1);
-}
-
 function buildDailyAnalysisLogs(logs: DailyLog[], todayKey: string): AnalysisLog[] {
   const eligible = logs
     .filter((log) => log.log_date <= todayKey)
@@ -194,23 +186,26 @@ export function ProgressPage() {
     const weightLogs = analysisLogs.filter((log) => log.weight_kg !== null);
     const waistLogs = analysisLogs.filter((log) => log.waist_cm !== null);
 
-    // Cada bloque semanal es siempre domingo-sábado. Los días sin medición pasada
-    // heredan la última medición conocida, pero no se crean check-ins falsos en la base de datos.
-    const currentPeriodEnd = lastCompletedSaturday(todayKey);
-    const currentPeriodStart = shiftDateKey(currentPeriodEnd, -6);
-    const previousPeriodEnd = shiftDateKey(currentPeriodStart, -1);
-    const previousPeriodStart = shiftDateKey(previousPeriodEnd, -6);
+    // Las semanas son siempre domingo-sábado. La semana anterior queda fija como
+    // referencia consolidada y la semana actual se promedia solo hasta hoy.
+    // Los días sin medición heredan la última medición conocida únicamente para el análisis.
+    const currentWeekStart = sundayOfWeek(todayKey);
+    const currentWeekEnd = todayKey;
+    const lastWeekEnd = shiftDateKey(currentWeekStart, -1);
+    const lastWeekStart = shiftDateKey(lastWeekEnd, -6);
+    const [todayYear, todayMonth, todayDay] = todayKey.split('-').map(Number);
+    const currentWeekDaysElapsed = new Date(Date.UTC(todayYear, todayMonth - 1, todayDay)).getUTCDay() + 1;
 
-    const currentPeriodWeights = weightLogs
-      .filter((log) => log.log_date >= currentPeriodStart && log.log_date <= currentPeriodEnd)
+    const currentWeekWeights = weightLogs
+      .filter((log) => log.log_date >= currentWeekStart && log.log_date <= currentWeekEnd)
       .map((log) => Number(log.weight_kg));
-    const previousPeriodWeights = weightLogs
-      .filter((log) => log.log_date >= previousPeriodStart && log.log_date <= previousPeriodEnd)
+    const lastWeekWeights = weightLogs
+      .filter((log) => log.log_date >= lastWeekStart && log.log_date <= lastWeekEnd)
       .map((log) => Number(log.weight_kg));
 
-    const currentAvg = average(currentPeriodWeights);
-    const previousAvg = average(previousPeriodWeights);
-    const weeklyRate = currentAvg !== null && previousAvg !== null ? currentAvg - previousAvg : null;
+    const currentWeekAvg = average(currentWeekWeights);
+    const lastWeekAvg = average(lastWeekWeights);
+    const weeklyRate = currentWeekAvg !== null && lastWeekAvg !== null ? currentWeekAvg - lastWeekAvg : null;
     const firstWeight = weightLogs[0]?.weight_kg ?? null;
     const currentWeight = weightLogs.at(-1)?.weight_kg ?? null;
     const totalWeightChange = currentWeight !== null && firstWeight !== null ? Number(currentWeight) - Number(firstWeight) : null;
@@ -227,16 +222,19 @@ export function ProgressPage() {
       analysisLogs,
       weightLogs,
       waistLogs,
-      currentAvg,
-      previousAvg,
+      currentWeekAvg,
+      lastWeekAvg,
       weeklyRate,
       totalWeightChange,
       firstWeight,
       currentWeight,
       firstWaist,
       currentWaist,
-      currentPeriodStart,
-      currentPeriodEnd,
+      currentWeekStart,
+      currentWeekEnd,
+      currentWeekDaysElapsed,
+      lastWeekStart,
+      lastWeekEnd,
       bodyFatLogs
     };
   }, [logs, profile, todayKey]);
@@ -269,13 +267,27 @@ export function ProgressPage() {
 
     <section className="two-column charts-grid">
       <article className="panel chart-card">
-        <div className="section-title">
-          <div>
-            <span>Peso promedio 7 días</span>
-            <h2>{metrics.currentAvg?.toFixed(1) ?? '—'} kg</h2>
-            <small className="muted">Semana {shortDate(metrics.currentPeriodStart)}–{shortDate(metrics.currentPeriodEnd)} · dom–sáb</small>
+        <div className="section-title" style={{ alignItems: 'flex-start' }}>
+          <div style={{ width: '100%' }}>
+            <span>Peso promedio semanal</span>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, marginTop: 10 }}>
+              <div style={{ padding: '10px 11px', borderRadius: 14, background: 'rgba(255,255,255,.025)', border: '1px solid rgba(255,255,255,.06)' }}>
+                <small className="muted" style={{ display: 'block', fontSize: 10, fontWeight: 800, letterSpacing: '.08em' }}>ÚLTIMA SEMANA</small>
+                <strong style={{ display: 'block', marginTop: 4, fontSize: 27, lineHeight: 1.05 }}>{metrics.lastWeekAvg?.toFixed(1) ?? '—'} kg</strong>
+                <small className="muted" style={{ display: 'block', marginTop: 6, lineHeight: 1.25 }}>
+                  {shortDate(metrics.lastWeekStart)}–{shortDate(metrics.lastWeekEnd)} · dom–sáb
+                </small>
+              </div>
+              <div style={{ padding: '10px 11px', borderRadius: 14, background: 'rgba(112,228,72,.055)', border: '1px solid rgba(112,228,72,.22)' }}>
+                <small style={{ display: 'block', color: '#70e448', fontSize: 10, fontWeight: 850, letterSpacing: '.08em' }}>ESTA SEMANA · EN CURSO</small>
+                <strong style={{ display: 'block', marginTop: 4, fontSize: 27, lineHeight: 1.05 }}>{metrics.currentWeekAvg?.toFixed(1) ?? '—'} kg</strong>
+                <small className="muted" style={{ display: 'block', marginTop: 6, lineHeight: 1.25 }}>
+                  {shortDate(metrics.currentWeekStart)}–{shortDate(metrics.currentWeekEnd)} · {metrics.currentWeekDaysElapsed}/7 días
+                </small>
+              </div>
+            </div>
           </div>
-          <Scale />
+          <Scale style={{ flex: '0 0 auto', marginLeft: 8 }} />
         </div>
         <Sparkline
           values={weightChart.map((log) => Number(log.weight_kg))}
@@ -285,8 +297,8 @@ export function ProgressPage() {
           ariaLabel="Evolución del peso"
         />
         <div style={{ display: 'grid', gap: 8, marginTop: 15, paddingTop: 13, borderTop: '1px solid rgba(255,255,255,.06)' }}>
-          <TrendDelta value={metrics.weeklyRate} label="kg promedio vs. semana anterior" />
-          <TrendDelta value={metrics.totalWeightChange} label="kg total hasta hoy" />
+          <TrendDelta value={metrics.weeklyRate} label="promedio en curso vs. última semana" />
+          <TrendDelta value={metrics.totalWeightChange} label="cambio total desde el inicio" />
         </div>
       </article>
 
@@ -328,7 +340,7 @@ export function ProgressPage() {
     </section>
 
     <section className="metric-grid progress-metrics">
-      <article className="metric-card"><div className="metric-icon orange"><Flame /></div><div><span>Ritmo semanal</span><strong>{metrics.weeklyRate === null ? '—' : `${metrics.weeklyRate.toFixed(2)} kg`}</strong></div></article>
+      <article className="metric-card"><div className="metric-icon orange"><Flame /></div><div><span>Vs. semana anterior</span><strong>{metrics.weeklyRate === null ? '—' : `${metrics.weeklyRate.toFixed(2)} kg`}</strong></div></article>
       <article className="metric-card"><div className="metric-icon"><Activity /></div><div><span>Peso por composición</span><strong>{latestBodyFat?.estimatedTargetWeightKg ? `${latestBodyFat.estimatedTargetWeightKg.toFixed(1)} kg` : '—'}</strong></div></article>
       <article className="metric-card"><div className="metric-icon"><Trophy /></div><div><span>Puntos</span><strong>{points.toLocaleString('es-CL')}</strong></div></article>
       <article className="metric-card"><div className="metric-icon"><Award /></div><div><span>Días completos</span><strong>{adherenceDays}</strong></div></article>
