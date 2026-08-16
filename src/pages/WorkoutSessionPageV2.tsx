@@ -20,7 +20,14 @@ import type { Exercise } from '../types';
 const REST_SECONDS = 120;
 type TimerState = { remaining: number; endAt: number | null; running: boolean; finished: boolean };
 type LastExerciseWeights = Record<string, number>;
-type ExerciseHistoryMetric = { lastWeight: number; prWeight: number; prReps: number; estimatedOneRepMax: number };
+type ExerciseHistoryMetric = {
+  lastWeight: number;
+  prWeight: number;
+  prReps: number;
+  estimatedOneRepMax: number;
+  loadPrWeight: number;
+  loadPrReps: number;
+};
 type ExerciseHistoryMetrics = Record<string, ExerciseHistoryMetric>;
 type StoredSessionDraft = { updatedAt: number; session: any };
 type StoredSetDraft = { updatedAt: number; set: any };
@@ -100,13 +107,29 @@ function weightsForSession(nextSession: any, source: LastExerciseWeights): LastE
 }
 
 function emptyHistoryMetric(lastWeight = 0): ExerciseHistoryMetric {
-  return { lastWeight, prWeight: 0, prReps: 0, estimatedOneRepMax: 0 };
+  return { lastWeight, prWeight: 0, prReps: 0, estimatedOneRepMax: 0, loadPrWeight: 0, loadPrReps: 0 };
+}
+
+function normalizeHistoryMetric(value: any, fallbackLastWeight = 0): ExerciseHistoryMetric {
+  if (!value) return emptyHistoryMetric(fallbackLastWeight);
+  const prWeight = Number(value.prWeight) || 0;
+  const prReps = Number(value.prReps) || 0;
+  const hasLoadPr = Number(value.loadPrWeight) > 0;
+  const rawLastWeight = Number(value.lastWeight);
+  return {
+    lastWeight: Number.isFinite(rawLastWeight) ? rawLastWeight : fallbackLastWeight,
+    prWeight,
+    prReps,
+    estimatedOneRepMax: Number(value.estimatedOneRepMax) || 0,
+    loadPrWeight: hasLoadPr ? Number(value.loadPrWeight) : prWeight,
+    loadPrReps: hasLoadPr ? Number(value.loadPrReps) || 0 : prReps
+  };
 }
 
 function historyForSession(nextSession: any, source: ExerciseHistoryMetrics, fallbackWeights: LastExerciseWeights = {}): ExerciseHistoryMetrics {
   return Object.fromEntries(sessionExerciseIds(nextSession).map((exerciseId) => {
     const key = String(exerciseId);
-    return [key, source[key] ?? emptyHistoryMetric(fallbackWeights[key] ?? 0)];
+    return [key, normalizeHistoryMetric(source[key], fallbackWeights[key] ?? 0)];
   }));
 }
 
@@ -132,10 +155,32 @@ function bestSetMetric(workoutSets: any[], requireCompleted = true): ExerciseHis
     if ((requireCompleted && !set.completed) || !Number.isFinite(weight) || !Number.isFinite(reps) || weight <= 0 || reps <= 0) continue;
     const estimatedOneRepMax = weight * (1 + reps / 30);
     if (estimatedOneRepMax > best.estimatedOneRepMax) {
-      best = { lastWeight: 0, prWeight: weight, prReps: reps, estimatedOneRepMax };
+      best = { ...best, prWeight: weight, prReps: reps, estimatedOneRepMax };
+    }
+    if (weight > best.loadPrWeight || (weight === best.loadPrWeight && reps > best.loadPrReps)) {
+      best = { ...best, loadPrWeight: weight, loadPrReps: reps };
     }
   }
   return best;
+}
+
+function mergeBestMetrics(base: ExerciseHistoryMetric, candidate: ExerciseHistoryMetric): ExerciseHistoryMetric {
+  let merged = { ...base };
+  if (candidate.estimatedOneRepMax > merged.estimatedOneRepMax) {
+    merged = {
+      ...merged,
+      prWeight: candidate.prWeight,
+      prReps: candidate.prReps,
+      estimatedOneRepMax: candidate.estimatedOneRepMax
+    };
+  }
+  if (
+    candidate.loadPrWeight > merged.loadPrWeight
+    || (candidate.loadPrWeight === merged.loadPrWeight && candidate.loadPrReps > merged.loadPrReps)
+  ) {
+    merged = { ...merged, loadPrWeight: candidate.loadPrWeight, loadPrReps: candidate.loadPrReps };
+  }
+  return merged;
 }
 
 function calculateExerciseHistoryMetrics(rows: any[], exerciseIds: number[]): ExerciseHistoryMetrics {
@@ -153,11 +198,7 @@ function calculateExerciseHistoryMetrics(rows: any[], exerciseIds: number[]): Ex
       }
 
       const candidate = bestSetMetric(workoutExercise.workout_sets ?? []);
-      if (candidate.estimatedOneRepMax > result[key].estimatedOneRepMax) {
-        result[key].prWeight = candidate.prWeight;
-        result[key].prReps = candidate.prReps;
-        result[key].estimatedOneRepMax = candidate.estimatedOneRepMax;
-      }
+      result[key] = mergeBestMetrics(result[key], candidate);
     }
   }
 
@@ -703,14 +744,16 @@ export function WorkoutSessionPageV2() {
       const key = String(exercise.exercise_id);
       const lastWeight = lastCompletedWeight(exercise.workout_sets ?? []);
       const sessionBest = bestSetMetric(exercise.workout_sets ?? []);
-      const previous = nextHistory[key] ?? emptyHistoryMetric(nextWeights[key] ?? 0);
-      const best = sessionBest.estimatedOneRepMax > previous.estimatedOneRepMax ? sessionBest : previous;
+      const previous = normalizeHistoryMetric(nextHistory[key], nextWeights[key] ?? 0);
+      const best = mergeBestMetrics(previous, sessionBest);
       nextWeights[key] = lastWeight;
       nextHistory[key] = {
         lastWeight,
         prWeight: best.prWeight,
         prReps: best.prReps,
-        estimatedOneRepMax: best.estimatedOneRepMax
+        estimatedOneRepMax: best.estimatedOneRepMax,
+        loadPrWeight: best.loadPrWeight,
+        loadPrReps: best.loadPrReps
       };
     }
 
@@ -774,12 +817,13 @@ export function WorkoutSessionPageV2() {
       <section className="exercise-stack">
         {session.workout_exercises.map((exercise: any) => {
           const exerciseCompleted = exercise.workout_sets.length > 0 && exercise.workout_sets.every((set: any) => set.completed);
-          const historicalHistory = exerciseHistoryMetrics[String(exercise.exercise_id)] ?? emptyHistoryMetric(lastExerciseWeights[String(exercise.exercise_id)] ?? 0);
+          const historicalHistory = normalizeHistoryMetric(
+            exerciseHistoryMetrics[String(exercise.exercise_id)],
+            lastExerciseWeights[String(exercise.exercise_id)] ?? 0
+          );
           const liveBest = bestSetMetric(exercise.workout_sets ?? [], false);
-          const history = liveBest.estimatedOneRepMax > historicalHistory.estimatedOneRepMax
-            ? { ...historicalHistory, prWeight: liveBest.prWeight, prReps: liveBest.prReps, estimatedOneRepMax: liveBest.estimatedOneRepMax }
-            : historicalHistory;
-          const liveMetricAvailable = liveBest.estimatedOneRepMax > 0;
+          const history = mergeBestMetrics(historicalHistory, liveBest);
+          const liveMetricAvailable = liveBest.estimatedOneRepMax > 0 || liveBest.loadPrWeight > 0;
           return (
             <article className={exerciseCompleted ? 'panel exercise-panel exercise-completed' : 'panel exercise-panel'} key={exercise.id}>
               <div className="exercise-title">
@@ -789,8 +833,8 @@ export function WorkoutSessionPageV2() {
                   <h2>{exercise.exercise?.name || 'Ejercicio'}</h2>
                   <small>Objetivo: {exercise.planned?.target_sets ?? exercise.workout_sets.length} × {exercise.planned?.rep_min ?? 8}–{exercise.planned?.rep_max ?? 12} · RIR {exercise.planned?.rir_target ?? 2}</small>
                   <small style={{ display: 'block', marginTop: 4 }}>Última vez: {lastWeightsLoading ? '…' : `${formatWeightKg(history.lastWeight)} kg`}</small>
-                  <small style={{ display: 'block', marginTop: 2 }}>PR: {lastWeightsLoading && !liveMetricAvailable ? '…' : history.prWeight > 0 ? `${formatWeightKg(history.prWeight)} kg × ${history.prReps}` : '0 kg'}</small>
-                  <small style={{ display: 'block', marginTop: 2 }}>1RM estimado: {lastWeightsLoading && !liveMetricAvailable ? '…' : `${formatWeightKg(history.estimatedOneRepMax)} kg`}</small>
+                  <small style={{ display: 'block', marginTop: 2 }}>PR e1RM: {lastWeightsLoading && !liveMetricAvailable ? '…' : history.prWeight > 0 ? `${formatWeightKg(history.estimatedOneRepMax)} kg · ${formatWeightKg(history.prWeight)} kg × ${history.prReps}` : '0 kg'}</small>
+                  <small style={{ display: 'block', marginTop: 2 }}>PR de carga: {lastWeightsLoading && !liveMetricAvailable ? '…' : history.loadPrWeight > 0 ? `${formatWeightKg(history.loadPrWeight)} kg × ${history.loadPrReps}` : '0 kg'}</small>
                 </div>
                 <div className="exercise-actions">
                   <button className={exerciseCompleted ? 'secondary-button compact exercise-toggle active' : 'secondary-button compact exercise-toggle'} onClick={() => toggleExerciseComplete(exercise)}>{exerciseCompleted ? <RotateCcw size={15} /> : <CheckCircle2 size={15} />} {exerciseCompleted ? 'Desmarcar ejercicio' : 'Marcar ejercicio hecho'}</button>
