@@ -824,6 +824,7 @@ export function WorkoutSessionPageV2() {
           const liveBest = bestSetMetric(exercise.workout_sets ?? [], false);
           const history = mergeBestMetrics(historicalHistory, liveBest);
           const liveMetricAvailable = liveBest.estimatedOneRepMax > 0 || liveBest.loadPrWeight > 0;
+          const loadPrDuplicatesE1rm = history.loadPrWeight === history.prWeight && history.loadPrReps === history.prReps;
           return (
             <article className={exerciseCompleted ? 'panel exercise-panel exercise-completed' : 'panel exercise-panel'} key={exercise.id}>
               <div className="exercise-title">
@@ -834,7 +835,7 @@ export function WorkoutSessionPageV2() {
                   <small>Objetivo: {exercise.planned?.target_sets ?? exercise.workout_sets.length} × {exercise.planned?.rep_min ?? 8}–{exercise.planned?.rep_max ?? 12} · RIR {exercise.planned?.rir_target ?? 2}</small>
                   <small style={{ display: 'block', marginTop: 4 }}>Última vez: {lastWeightsLoading ? '…' : `${formatWeightKg(history.lastWeight)} kg`}</small>
                   <small style={{ display: 'block', marginTop: 2 }}>PR e1RM: {lastWeightsLoading && !liveMetricAvailable ? '…' : history.prWeight > 0 ? `${formatWeightKg(history.estimatedOneRepMax)} kg · ${formatWeightKg(history.prWeight)} kg × ${history.prReps}` : '0 kg'}</small>
-                  <small style={{ display: 'block', marginTop: 2 }}>PR de carga: {lastWeightsLoading && !liveMetricAvailable ? '…' : history.loadPrWeight > 0 ? `${formatWeightKg(history.loadPrWeight)} kg × ${history.loadPrReps}` : '0 kg'}</small>
+                  {!loadPrDuplicatesE1rm && <small style={{ display: 'block', marginTop: 2 }}>PR de carga: {lastWeightsLoading && !liveMetricAvailable ? '…' : history.loadPrWeight > 0 ? `${formatWeightKg(history.loadPrWeight)} kg × ${history.loadPrReps}` : '0 kg'}</small>}
                 </div>
                 <div className="exercise-actions">
                   <button className={exerciseCompleted ? 'secondary-button compact exercise-toggle active' : 'secondary-button compact exercise-toggle'} onClick={() => toggleExerciseComplete(exercise)}>{exerciseCompleted ? <RotateCcw size={15} /> : <CheckCircle2 size={15} />} {exerciseCompleted ? 'Desmarcar ejercicio' : 'Marcar ejercicio hecho'}</button>
