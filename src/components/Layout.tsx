@@ -1,4 +1,4 @@
-import { Activity, BarChart3, CalendarDays, CloudOff, CloudUpload, Dumbbell, Home, LogOut, MoreHorizontal, Salad, X } from 'lucide-react';
+import { Activity, BarChart3, BookOpen, CalendarDays, CloudOff, CloudUpload, Dumbbell, Home, LogOut, MoreHorizontal, X } from 'lucide-react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedDate } from '../context/SelectedDateContext';
@@ -8,7 +8,7 @@ import { prettyDate } from '../lib/date';
 const links = [
   { to: '/', label: 'Hoy', icon: Home },
   { to: '/entreno', label: 'Entreno', icon: Dumbbell },
-  { to: '/nutricion', label: 'Nutri', icon: Salad },
+  { to: '/biblioteca', label: 'Biblioteca', icon: BookOpen },
   { to: '/progreso', label: 'Progreso', icon: BarChart3 },
   { to: '/ajustes', label: 'Más', icon: MoreHorizontal }
 ];
