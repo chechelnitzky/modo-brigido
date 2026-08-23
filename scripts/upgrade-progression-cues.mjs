@@ -167,9 +167,9 @@ function bestSetMetric(workoutSets: any[], requireCompleted = true): ExerciseHis
   workout = replaceRequired(
     workout,
 `                  <small>Objetivo: {exercise.planned?.target_sets ?? exercise.workout_sets.length} × {exercise.planned?.rep_min ?? 8}–{exercise.planned?.rep_max ?? 12} · RIR {exercise.planned?.rir_target ?? 2}</small>
-                  <small style={{ display: 'block', marginTop: 4 }}>Última vez: {lastWeightsLoading ? '…' : \`${formatWeightKg(history.lastWeight)} kg\`}</small>
-                  <small style={{ display: 'block', marginTop: 2 }}>PR e1RM: {lastWeightsLoading && !liveMetricAvailable ? '…' : history.prWeight > 0 ? \`${formatWeightKg(history.estimatedOneRepMax)} kg · ${formatWeightKg(history.prWeight)} kg × ${history.prReps}\` : '0 kg'}</small>
-                  {!loadPrDuplicatesE1rm && <small style={{ display: 'block', marginTop: 2 }}>PR de carga: {lastWeightsLoading && !liveMetricAvailable ? '…' : history.loadPrWeight > 0 ? \`${formatWeightKg(history.loadPrWeight)} kg × ${history.loadPrReps}\` : '0 kg'}</small>}`,
+                  <small style={{ display: 'block', marginTop: 4 }}>Última vez: {lastWeightsLoading ? '…' : \`\${formatWeightKg(history.lastWeight)} kg\`}</small>
+                  <small style={{ display: 'block', marginTop: 2 }}>PR e1RM: {lastWeightsLoading && !liveMetricAvailable ? '…' : history.prWeight > 0 ? \`\${formatWeightKg(history.estimatedOneRepMax)} kg · \${formatWeightKg(history.prWeight)} kg × \${history.prReps}\` : '0 kg'}</small>
+                  {!loadPrDuplicatesE1rm && <small style={{ display: 'block', marginTop: 2 }}>PR de carga: {lastWeightsLoading && !liveMetricAvailable ? '…' : history.loadPrWeight > 0 ? \`\${formatWeightKg(history.loadPrWeight)} kg × \${history.loadPrReps}\` : '0 kg'}</small>}`,
 `                  <small>Objetivo: {targetSets} × {repMin}–{repMax} · RIR {exercise.planned?.rir_target ?? 2}</small>
                   <div className={'progression-cue ' + progression.action}>
                     <span>PRÓXIMA SESIÓN</span>
