@@ -5,7 +5,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { SelectedDateProvider } from './context/SelectedDateContext';
 import { getAppConfig } from './lib/config';
 import { AuthPage } from './pages/AuthPage';
-import { NutritionPage } from './pages/NutritionPage';
+import { ExerciseLibraryPage } from './pages/ExerciseLibraryPage';
 import { ProgressPage } from './pages/ProgressPage';
 import { RoutineEditorPage } from './pages/RoutineEditorPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -26,7 +26,8 @@ function AuthenticatedApp() {
         <Route path="/entreno" element={<WorkoutsPageV2 />} />
         <Route path="/sesion/:id" element={<WorkoutSessionPageV2 />} />
         <Route path="/rutinas" element={<RoutineEditorPage />} />
-        <Route path="/nutricion" element={<NutritionPage />} />
+        <Route path="/biblioteca" element={<ExerciseLibraryPage />} />
+        <Route path="/nutricion" element={<Navigate to="/biblioteca" replace />} />
         <Route path="/progreso" element={<ProgressPage />} />
         <Route path="/ajustes" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
