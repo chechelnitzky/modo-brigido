@@ -1,10 +1,12 @@
-import { ArrowLeft, BellRing, Check, CheckCircle2, CloudOff, Dumbbell, Pause, Play, RefreshCw, RotateCcw, Save, Search, TimerReset } from 'lucide-react';
+import { ArrowLeft, BellRing, Check, CheckCircle2, CloudOff, Dumbbell, Eye, Pause, Play, RefreshCw, RotateCcw, Save, Search, TimerReset } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ExerciseCreator } from '../components/ExerciseCreator';
+import { ExerciseDetailModal } from '../components/ExerciseDetailModal';
 import { Modal } from '../components/Modal';
 import { useAuth } from '../context/AuthContext';
 import { useOfflineStatus } from '../hooks/useOfflineStatus';
+import { EXERCISE_BASIC_SELECT, EXERCISE_DETAIL_SELECT, matchesExerciseSearch, rankExerciseAlternatives } from '../lib/exercises';
 import { cacheKeys, cacheSessionSummary, getCached, queueMutation, saveMutation, setCached, syncPendingMutations, updateCachedRoutineExercise } from '../lib/offline';
 import { getSupabase } from '../lib/supabase';
 import {
@@ -225,6 +227,7 @@ export function WorkoutSessionPageV2() {
   const [library, setLibrary] = useState<Exercise[]>([]);
   const [replaceTarget, setReplaceTarget] = useState<any>(null);
   const [search, setSearch] = useState('');
+  const [detailExercise, setDetailExercise] = useState<Exercise | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [lastExerciseWeights, setLastExerciseWeights] = useState<LastExerciseWeights>({});
@@ -462,7 +465,7 @@ export function WorkoutSessionPageV2() {
     await syncPendingMutations();
     const { data, error: loadError } = await supabase
       .from('workout_sessions')
-      .select(`id,user_id,routine_id,session_date,started_at,finished_at,notes,routine:routine_templates(name),workout_exercises(id,position,exercise_id,planned_routine_exercise_id,exercise:exercise_library(id,slug,name,category,primary_muscle,pattern,equipment,user_id),planned:routine_exercises(target_sets,rep_min,rep_max,rir_target),workout_sets(id,set_number,weight_kg,reps,rir,completed))`)
+      .select(`id,user_id,routine_id,session_date,started_at,finished_at,notes,routine:routine_templates(name),workout_exercises(id,position,exercise_id,planned_routine_exercise_id,exercise:exercise_library(id,slug,name,category,primary_muscle,pattern,equipment,user_id,source,source_exercise_id,source_media_id,body_part,target_muscle,muscle_group,secondary_muscles,instructions_es,instruction_steps_es,thumbnail_url,gif_url,media_attribution,media_license_status,recommendation_rank,is_recommended,is_verified,quality_status),planned:routine_exercises(target_sets,rep_min,rep_max,rir_target),workout_sets(id,set_number,weight_kg,reps,rir,completed))`)
       .eq('id', id)
       .single();
 
@@ -601,27 +604,47 @@ export function WorkoutSessionPageV2() {
 
   const loadLibrary = async (target: any) => {
     setReplaceTarget(target);
+    setSearch('');
     if (library.length) return;
     const cached = await getCached<Exercise[]>(cacheKeys.exerciseLibrary);
-    if (cached) setLibrary(cached);
+    if (cached?.length) setLibrary(cached);
     if (!navigator.onLine) return;
     const { data } = await supabase
       .from('exercise_library')
-      .select('id,slug,name,category,primary_muscle,pattern,equipment,user_id')
+      .select(EXERCISE_BASIC_SELECT)
+      .order('is_verified', { ascending: false })
+      .order('is_recommended', { ascending: false })
+      .order('recommendation_rank', { ascending: false })
       .order('name');
     const next = (data ?? []) as Exercise[];
     setLibrary(next);
     await setCached(cacheKeys.exerciseLibrary, next);
   };
 
-  const filteredLibrary = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return library.filter((exercise) => !query || `${exercise.name} ${exercise.primary_muscle} ${exercise.equipment} ${exercise.pattern} ${exercise.category}`.toLowerCase().includes(query));
-  }, [library, search]);
+  const replacementOptions = useMemo(() => {
+    const current = (replaceTarget?.exercise ?? null) as Exercise | null;
+    const candidates = library.filter((exercise) => matchesExerciseSearch(exercise, search));
+    return rankExerciseAlternatives(current, candidates).slice(0, search.trim() ? 80 : 30);
+  }, [library, search, replaceTarget]);
 
   const handleReplacementExerciseCreated = (exercise: Exercise) => {
     setLibrary((current) => [...current.filter((item) => item.id !== exercise.id), exercise].sort((a, b) => a.name.localeCompare(b.name, 'es')));
     setSearch(exercise.name);
+  };
+
+  const openExerciseDetail = async (exercise: Exercise | null | undefined) => {
+    if (!exercise) return;
+    setDetailExercise(exercise);
+    const detailKey = `exercise-detail:${exercise.id}`;
+    const cached = await getCached<Exercise>(detailKey);
+    if (cached) setDetailExercise(cached);
+    if (!navigator.onLine) return;
+    const { data } = await supabase.from('exercise_library').select(EXERCISE_DETAIL_SELECT).eq('id', exercise.id).single();
+    if (data) {
+      const detail = data as Exercise;
+      setDetailExercise(detail);
+      await setCached(detailKey, detail);
+    }
   };
 
   const editSetLocal = (exerciseId: string, setId: string, field: string, value: string | boolean) => {
@@ -785,7 +808,7 @@ export function WorkoutSessionPageV2() {
   if (!session) return <div className="page-loading">Preparando entrenamiento…</div>;
 
   const searchedName = search.trim();
-  const noSearchResults = Boolean(searchedName) && filteredLibrary.length === 0;
+  const noSearchResults = Boolean(searchedName) && replacementOptions.length === 0;
 
   return (
     <div className="page-grid workout-session-page">
@@ -839,6 +862,7 @@ export function WorkoutSessionPageV2() {
                 </div>
                 <div className="exercise-actions">
                   <button className={exerciseCompleted ? 'secondary-button compact exercise-toggle active' : 'secondary-button compact exercise-toggle'} onClick={() => toggleExerciseComplete(exercise)}>{exerciseCompleted ? <RotateCcw size={15} /> : <CheckCircle2 size={15} />} {exerciseCompleted ? 'Desmarcar ejercicio' : 'Marcar ejercicio hecho'}</button>
+                  {exercise.exercise && <button className="secondary-button compact" onClick={() => void openExerciseDetail(exercise.exercise)}><Eye size={15} /> Cómo hacerlo</button>}
                   <button className="secondary-button compact" onClick={() => loadLibrary(exercise)}><RefreshCw size={15} /> Cambiar</button>
                 </div>
               </div>
@@ -862,7 +886,7 @@ export function WorkoutSessionPageV2() {
 
       {replaceTarget && <Modal title={`Cambiar ${replaceTarget.exercise?.name ?? 'ejercicio'}`} onClose={() => { setReplaceTarget(null); setSearch(''); }}>
         <div className="search-box"><Search size={17} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar ejercicio, músculo o máquina" /></div>
-        <p className="muted small">“Solo hoy” modifica esta sesión. “Permanente” cambia la rutina futura.</p>
+        <p className="muted small">“Solo hoy” modifica esta sesión. “Permanente” cambia la rutina futura. Las opciones están ordenadas por músculo objetivo, patrón de movimiento, equipo y calidad.</p>
         {!library.length && !navigator.onLine && <div className="alert error">La biblioteca todavía no está descargada. Ábrela una vez con internet.</div>}
         {noSearchResults && <div className="editor-empty"><Dumbbell /><span>No encontramos “{searchedName}”. Puedes crearlo ahora y después elegir si el cambio es solo por hoy o permanente.</span></div>}
         <ExerciseCreator
@@ -870,8 +894,13 @@ export function WorkoutSessionPageV2() {
           buttonLabel={noSearchResults ? `Agregar “${searchedName}” como ejercicio nuevo` : 'Crear ejercicio personalizado'}
           onCreated={handleReplacementExerciseCreated}
         />
-        <div className="library-list">{filteredLibrary.map((exercise) => <div className="library-item" key={exercise.id}><div><strong>{exercise.name}</strong><span>{exercise.primary_muscle} · {exercise.equipment}{exercise.user_id ? ' · Personalizado' : ''}</span></div><div><button className="secondary-button compact" onClick={() => replaceExercise(exercise, false)}>Solo hoy</button><button className="primary-button compact" onClick={() => replaceExercise(exercise, true)}><Save size={14} /> Permanente</button></div></div>)}</div>
+        <div className="library-list">{replacementOptions.map(({ exercise, reason }) => <div className="exercise-library-list-item" key={exercise.id}>
+          <div className="exercise-library-list-thumb">{exercise.thumbnail_url ? <img src={exercise.thumbnail_url} alt="" loading="lazy" /> : <Dumbbell size={20} />}</div>
+          <div className="exercise-library-list-copy"><strong>{exercise.name}</strong><span>{exercise.primary_muscle} · {exercise.equipment}{exercise.user_id ? ' · Personalizado' : exercise.is_recommended ? ' · Recomendado' : ''}</span><span className="exercise-alt-reason">{reason}</span></div>
+          <div className="exercise-library-list-actions"><button className="secondary-button compact" onClick={() => void openExerciseDetail(exercise)}><Eye size={14} /> Ver</button><button className="secondary-button compact" onClick={() => replaceExercise(exercise, false)}>Solo hoy</button><button className="primary-button compact" onClick={() => replaceExercise(exercise, true)}><Save size={14} /> Permanente</button></div>
+        </div>)}</div>
       </Modal>}
+      {detailExercise && <ExerciseDetailModal exercise={detailExercise} onClose={() => setDetailExercise(null)} />}
     </div>
   );
 }
