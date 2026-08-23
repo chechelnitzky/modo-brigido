@@ -4,8 +4,10 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/patch-workout-exercise-library.mjs",
     "dev": "vite",
     "typecheck": "tsc -b --pretty false",
+    "prebuild": "node scripts/patch-workout-exercise-library.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },
