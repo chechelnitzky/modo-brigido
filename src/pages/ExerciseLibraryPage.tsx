@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ExerciseDetailModal } from '../components/ExerciseDetailModal';
 import { useAuth } from '../context/AuthContext';
 import { cacheKeys, getCached, setCached } from '../lib/offline';
-import { bodyGroupMatches, bodyPartLabel, EXERCISE_BASIC_SELECT, EXERCISE_DETAIL_SELECT, matchesExerciseSearch, muscleLabel } from '../lib/exercises';
+import { bodyGroupMatches, bodyPartLabel, EXERCISE_BASIC_SELECT, EXERCISE_DETAIL_SELECT, matchesExerciseSearch } from '../lib/exercises';
 import { getSupabase } from '../lib/supabase';
 import type { Exercise } from '../types';
 
@@ -139,7 +139,7 @@ export function ExerciseLibraryPage() {
             </div>
             <div className="exercise-library-card-body">
               <div className="exercise-card-heading"><strong>{exercise.name}</strong><ChevronRight size={18} /></div>
-              <span className="exercise-card-muscle"><Target size={14} /> {muscleLabel(exercise.target_muscle) || exercise.primary_muscle}</span>
+              <span className="exercise-card-muscle"><Target size={14} /> {exercise.primary_muscle}</span>
               <div className="exercise-card-meta"><span>{bodyPartLabel(exercise.body_part)}</span><span>{exercise.equipment}</span></div>
               <small>{exercise.pattern}</small>
             </div>
