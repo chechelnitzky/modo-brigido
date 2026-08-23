@@ -84,11 +84,11 @@ function progressionCue(history: ExerciseHistoryMetric, targetSets: number, repM
   if (!sets.length) return { action: 'none', label: 'SIN DATOS', reason: 'Completa una sesión para recibir una recomendación de carga.' };
 
   if (sets.some((set) => set.reps < repMin)) {
-    return { action: 'down', label: 'BAJAR PESO', reason: `Al menos una serie quedó bajo el mínimo de ${repMin} reps.` };
+    return { action: 'down', label: 'BAJAR PESO', reason: 'Al menos una serie quedó bajo el mínimo de ' + repMin + ' reps.' };
   }
 
   if (sets.length < requiredSets) {
-    return { action: 'hold', label: 'MANTENER', reason: `Faltan series completas: ${sets.length}/${requiredSets}. Repite la carga antes de cambiarla.` };
+    return { action: 'hold', label: 'MANTENER', reason: 'Faltan series completas: ' + sets.length + '/' + requiredSets + '. Repite la carga antes de cambiarla.' };
   }
 
   const firstWeight = sets[0].weight;
@@ -96,22 +96,22 @@ function progressionCue(history: ExerciseHistoryMetric, targetSets: number, repM
   const allAtTop = sets.every((set) => set.reps >= repMax);
 
   if (allAtTop && sameWeight) {
-    return { action: 'up', label: 'SUBIR PESO', reason: `Completaste las ${requiredSets} series en ${repMax} reps o más con la misma carga.` };
+    return { action: 'up', label: 'SUBIR PESO', reason: 'Completaste las ' + requiredSets + ' series en ' + repMax + ' reps o más con la misma carga.' };
   }
 
   if (allAtTop && !sameWeight) {
     return { action: 'hold', label: 'MANTENER', reason: 'Llegaste al tope de reps, pero cambiaste la carga entre series. Repítela estable antes de subir.' };
   }
 
-  return { action: 'hold', label: 'MANTENER', reason: `Mantén la carga hasta llevar todas las series a ${repMax} reps.` };
+  return { action: 'hold', label: 'MANTENER', reason: 'Mantén la carga hasta llevar todas las series a ' + repMax + ' reps.' };
 }
 
 function lastSessionSummary(history: ExerciseHistoryMetric, targetSets: number): string {
   const sets = history.lastSets.slice(0, Math.max(1, targetSets));
   if (!sets.length) return 'Sin sesión anterior';
   const sameWeight = sets.every((set) => Math.abs(set.weight - sets[0].weight) < 0.001);
-  if (sameWeight) return `${formatWeightKg(sets[0].weight)} kg × ${sets.map((set) => set.reps).join(' / ')}`;
-  return sets.map((set) => `${formatWeightKg(set.weight)} kg × ${set.reps}`).join(' · ');
+  if (sameWeight) return formatWeightKg(sets[0].weight) + ' kg × ' + sets.map((set) => set.reps).join(' / ');
+  return sets.map((set) => formatWeightKg(set.weight) + ' kg × ' + set.reps).join(' · ');
 }
 
 function bestSetMetric(workoutSets: any[], requireCompleted = true): ExerciseHistoryMetric {`,
@@ -167,18 +167,18 @@ function bestSetMetric(workoutSets: any[], requireCompleted = true): ExerciseHis
   workout = replaceRequired(
     workout,
 `                  <small>Objetivo: {exercise.planned?.target_sets ?? exercise.workout_sets.length} × {exercise.planned?.rep_min ?? 8}–{exercise.planned?.rep_max ?? 12} · RIR {exercise.planned?.rir_target ?? 2}</small>
-                  <small style={{ display: 'block', marginTop: 4 }}>Última vez: {lastWeightsLoading ? '…' : `${formatWeightKg(history.lastWeight)} kg`}</small>
-                  <small style={{ display: 'block', marginTop: 2 }}>PR e1RM: {lastWeightsLoading && !liveMetricAvailable ? '…' : history.prWeight > 0 ? `${formatWeightKg(history.estimatedOneRepMax)} kg · ${formatWeightKg(history.prWeight)} kg × ${history.prReps}` : '0 kg'}</small>
-                  {!loadPrDuplicatesE1rm && <small style={{ display: 'block', marginTop: 2 }}>PR de carga: {lastWeightsLoading && !liveMetricAvailable ? '…' : history.loadPrWeight > 0 ? `${formatWeightKg(history.loadPrWeight)} kg × ${history.loadPrReps}` : '0 kg'}</small>}`,
+                  <small style={{ display: 'block', marginTop: 4 }}>Última vez: {lastWeightsLoading ? '…' : \`${formatWeightKg(history.lastWeight)} kg\`}</small>
+                  <small style={{ display: 'block', marginTop: 2 }}>PR e1RM: {lastWeightsLoading && !liveMetricAvailable ? '…' : history.prWeight > 0 ? \`${formatWeightKg(history.estimatedOneRepMax)} kg · ${formatWeightKg(history.prWeight)} kg × ${history.prReps}\` : '0 kg'}</small>
+                  {!loadPrDuplicatesE1rm && <small style={{ display: 'block', marginTop: 2 }}>PR de carga: {lastWeightsLoading && !liveMetricAvailable ? '…' : history.loadPrWeight > 0 ? \`${formatWeightKg(history.loadPrWeight)} kg × ${history.loadPrReps}\` : '0 kg'}</small>}`,
 `                  <small>Objetivo: {targetSets} × {repMin}–{repMax} · RIR {exercise.planned?.rir_target ?? 2}</small>
-                  <div className={`progression-cue ${progression.action}`}>
+                  <div className={'progression-cue ' + progression.action}>
                     <span>PRÓXIMA SESIÓN</span>
                     <strong>{progression.label}</strong>
                     <small>{lastWeightsLoading ? 'Revisando tu sesión anterior…' : progression.reason}</small>
                   </div>
                   <small className="last-session-summary">Última sesión: {lastWeightsLoading ? '…' : previousSession}</small>
-                  <small style={{ display: 'block', marginTop: 3 }}>Mejor serie histórica (e1RM): {lastWeightsLoading && !liveMetricAvailable ? '…' : history.prWeight > 0 ? `${formatWeightKg(history.estimatedOneRepMax)} kg · ${formatWeightKg(history.prWeight)} kg × ${history.prReps}` : 'Sin datos'}</small>
-                  {!loadPrDuplicatesE1rm && <small style={{ display: 'block', marginTop: 2 }}>Mayor carga histórica: {lastWeightsLoading && !liveMetricAvailable ? '…' : history.loadPrWeight > 0 ? `${formatWeightKg(history.loadPrWeight)} kg × ${history.loadPrReps}` : 'Sin datos'}</small>}`,
+                  <small style={{ display: 'block', marginTop: 3 }}>Mejor serie histórica (e1RM): {lastWeightsLoading && !liveMetricAvailable ? '…' : history.prWeight > 0 ? formatWeightKg(history.estimatedOneRepMax) + ' kg · ' + formatWeightKg(history.prWeight) + ' kg × ' + history.prReps : 'Sin datos'}</small>
+                  {!loadPrDuplicatesE1rm && <small style={{ display: 'block', marginTop: 2 }}>Mayor carga histórica: {lastWeightsLoading && !liveMetricAvailable ? '…' : history.loadPrWeight > 0 ? formatWeightKg(history.loadPrWeight) + ' kg × ' + history.loadPrReps : 'Sin datos'}</small>}`,
     'exercise history display'
   );
 }
