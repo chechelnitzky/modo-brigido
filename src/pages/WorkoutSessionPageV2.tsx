@@ -921,6 +921,7 @@ export function WorkoutSessionPageV2() {
                   </div>
                   <small>Objetivo: {targetSets} × {repMin}–{repMax} · RIR {exercise.planned?.rir_target ?? 2}</small>
                   <small className="last-session-summary">Última sesión: {lastWeightsLoading ? '…' : previousSession}</small>
+                  <small className="history-pr-line">PR: {lastWeightsLoading ? '…' : historicalHistory.prWeight > 0 ? formatWeightKg(historicalHistory.prWeight) + ' kg × ' + historicalHistory.prReps + ' · e1RM ' + formatWeightKg(historicalHistory.estimatedOneRepMax) + ' kg' : 'Sin datos'}</small>
                 </div>
                 <div className="exercise-actions">
                   <button className={exerciseCompleted ? 'secondary-button compact exercise-toggle active' : 'secondary-button compact exercise-toggle'} onClick={() => toggleExerciseComplete(exercise)}>{exerciseCompleted ? <RotateCcw size={15} /> : <CheckCircle2 size={15} />} {exerciseCompleted ? 'Desmarcar ejercicio' : 'Marcar ejercicio hecho'}</button>

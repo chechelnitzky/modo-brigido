@@ -109,3 +109,5 @@
   .progression-pill { padding: 4px 7px; font-size: 8px !important; }
   .progression-pill-arrow { font-size: 11px !important; }
 }
+
+.history-pr-line { display: block; margin-top: 2px; color: #819087 !important; font-size: 10px !important; font-weight: 600; }
