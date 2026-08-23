@@ -1,9 +1,11 @@
-import { ArrowLeft, CalendarDays, Dumbbell, Plus, Search, Trash2 } from 'lucide-react';
+import { ArrowLeft, CalendarDays, Dumbbell, Eye, Plus, Search, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ExerciseCreator } from '../components/ExerciseCreator';
+import { ExerciseDetailModal } from '../components/ExerciseDetailModal';
 import { Modal } from '../components/Modal';
 import { useAuth } from '../context/AuthContext';
+import { EXERCISE_BASIC_SELECT, EXERCISE_DETAIL_SELECT, matchesExerciseSearch } from '../lib/exercises';
 import { cacheKeys, getCached, saveMutation, setCached } from '../lib/offline';
 import { getSupabase } from '../lib/supabase';
 import type { Exercise } from '../types';
@@ -25,6 +27,8 @@ export function RoutineEditorPage() {
   const [library, setLibrary] = useState<Exercise[]>([]);
   const [selectedRoutineId, setSelectedRoutineId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [muscleFilter, setMuscleFilter] = useState('all');
+  const [detailExercise, setDetailExercise] = useState<Exercise | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -64,7 +68,7 @@ export function RoutineEditorPage() {
       if (!navigator.onLine) return;
       const [routineResult, libraryResult] = await Promise.all([
         supabase.from('routine_templates').select(`id,name,day_order,routine_exercises(id,position,target_sets,rep_min,rep_max,rir_target,exercise_id,exercise:exercise_library(id,slug,name,category,primary_muscle,pattern,equipment,user_id))`).eq('user_id', user.id).order('day_order'),
-        supabase.from('exercise_library').select('id,slug,name,category,primary_muscle,pattern,equipment,user_id').order('name')
+        supabase.from('exercise_library').select(EXERCISE_BASIC_SELECT).order('is_verified', { ascending: false }).order('is_recommended', { ascending: false }).order('recommendation_rank', { ascending: false }).order('name')
       ]);
       if (cancelled) return;
       if (routineResult.error) { setError(routineResult.error.message); return; }
@@ -76,7 +80,8 @@ export function RoutineEditorPage() {
     return () => { cancelled = true; };
   }, [supabase, user]);
 
-  const filteredLibrary = useMemo(() => { const query = search.trim().toLowerCase(); return library.filter((exercise) => !query || `${exercise.name} ${exercise.primary_muscle} ${exercise.equipment} ${exercise.pattern} ${exercise.category}`.toLowerCase().includes(query)); }, [library, search]);
+  const muscleOptions = useMemo(() => [...new Set(library.map((exercise) => exercise.primary_muscle).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es')), [library]);
+  const filteredLibrary = useMemo(() => library.filter((exercise) => matchesExerciseSearch(exercise, search) && (muscleFilter === 'all' || exercise.primary_muscle === muscleFilter)), [library, search, muscleFilter]);
   const updateRoutineLocal = (routineId: string, patch: Partial<Routine>) => { void persistLocal(routines.map((routine) => routine.id === routineId ? { ...routine, ...patch } : routine)); };
 
   const addDay = async () => {
@@ -127,7 +132,14 @@ export function RoutineEditorPage() {
     const nextExercise: RoutineExercise = { id: crypto.randomUUID(), position, target_sets: 2, rep_min: 8, rep_max: 12, rir_target: 3, exercise_id: exercise.id, exercise };
     await persistLocal(routines.map((item) => item.id === selectedRoutineId ? { ...item, routine_exercises: [...item.routine_exercises, nextExercise] } : item));
     await saveMutation({ operation: 'upsert', table: 'routine_exercises', payload: { id: nextExercise.id, routine_id: selectedRoutineId, exercise_id: exercise.id, position, target_sets: 2, rep_min: 8, rep_max: 12, rir_target: 3 }, dedupeKey: `routine-exercise-new:${nextExercise.id}` });
-    setSelectedRoutineId(null); setSearch('');
+    setSelectedRoutineId(null); setSearch(''); setMuscleFilter('all');
+  };
+
+  const previewExercise = async (exercise: Exercise) => {
+    setDetailExercise(exercise);
+    if (!navigator.onLine) return;
+    const { data } = await supabase.from('exercise_library').select(EXERCISE_DETAIL_SELECT).eq('id', exercise.id).single();
+    if (data) setDetailExercise(data as Exercise);
   };
 
   const handleCustomExerciseCreated = (exercise: Exercise) => {
@@ -158,12 +170,18 @@ export function RoutineEditorPage() {
           <button className="secondary-button add-exercise-button" onClick={() => setSelectedRoutineId(routine.id)}><Plus size={16} /> Agregar ejercicio</button>
         </article>)}
       </section>
-      {selectedRoutineId && <Modal title="Agregar ejercicio" onClose={() => { setSelectedRoutineId(null); setSearch(''); }}>
+      {selectedRoutineId && <Modal title="Agregar ejercicio" onClose={() => { setSelectedRoutineId(null); setSearch(''); setMuscleFilter('all'); }}>
         <div className="search-box"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nombre, músculo o máquina" /></div>
+        <div className="exercise-filter-row" style={{ gridTemplateColumns: '1fr' }}><label>Músculo<select value={muscleFilter} onChange={(event) => setMuscleFilter(event.target.value)}><option value="all">Todos los músculos</option>{muscleOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select></label></div>
         <ExerciseCreator onCreated={handleCustomExerciseCreated} />
         {!library.length && !navigator.onLine && <div className="alert error">La biblioteca no está descargada todavía.</div>}
-        <div className="library-list">{filteredLibrary.map((exercise) => <button className="exercise-choice" key={exercise.id} onClick={() => addExercise(exercise)}><div><strong>{exercise.name}</strong><span>{exercise.primary_muscle} · {exercise.equipment}{exercise.user_id ? ' · Personalizado' : ''}</span></div><Plus size={18} /></button>)}</div>
+        <div className="library-list">{filteredLibrary.map((exercise) => <div className="exercise-library-list-item" key={exercise.id}>
+          <div className="exercise-library-list-thumb">{exercise.thumbnail_url ? <img src={exercise.thumbnail_url} alt="" loading="lazy" /> : <Dumbbell size={20} />}</div>
+          <div className="exercise-library-list-copy"><strong>{exercise.name}</strong><span>{exercise.primary_muscle} · {exercise.equipment}{exercise.user_id ? ' · Personalizado' : exercise.is_recommended ? ' · Recomendado' : ''}</span></div>
+          <div className="exercise-library-list-actions"><button className="secondary-button compact" onClick={() => void previewExercise(exercise)}><Eye size={14} /> Ver</button><button className="primary-button compact" onClick={() => addExercise(exercise)}><Plus size={14} /> Agregar</button></div>
+        </div>)}</div>
       </Modal>}
+      {detailExercise && <ExerciseDetailModal exercise={detailExercise} onClose={() => setDetailExercise(null)} />}
     </div>
   );
 }
