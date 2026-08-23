@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
   statuses: write
@@ -30,9 +30,6 @@ jobs:
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
-
-      - name: Apply compact progression pill
-        run: node scripts/compact-progression-pill.mjs
 
       - name: Build application
         run: |
@@ -60,28 +57,6 @@ jobs:
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
-
-  persist:
-    runs-on: ubuntu-latest
-    needs: deploy
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: main
-
-      - name: Apply compact progression pill
-        run: node scripts/compact-progression-pill.mjs
-
-      - name: Commit upgraded source
-        run: |
-          if ! git diff --quiet -- src/pages/WorkoutSessionPageV2.tsx src/exercise-library.css; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add src/pages/WorkoutSessionPageV2.tsx src/exercise-library.css
-            git commit -m "ui: compact load progression indicator"
-            git push
-          fi
 
   report:
     runs-on: ubuntu-latest
