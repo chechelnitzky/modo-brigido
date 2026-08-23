@@ -96,15 +96,16 @@
 }
 
 
-.progression-cue { margin-top: 10px; width: min(100%, 390px); border: 1px solid #34443a; border-radius: 13px; padding: 9px 11px; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 2px 9px; background: #0d1410; }
-.progression-cue > span { grid-row: span 2; font-size: 8px; line-height: 1.15; letter-spacing: .1em; font-weight: 900; color: #7f8d84; writing-mode: vertical-rl; transform: rotate(180deg); }
-.progression-cue strong { font-size: 13px; letter-spacing: .035em; }
-.progression-cue small { color: #98a69d; font-size: 10px; line-height: 1.35; }
-.progression-cue.up { border-color: rgba(112,228,72,.42); background: rgba(112,228,72,.075); }
-.progression-cue.up strong { color: var(--green); }
-.progression-cue.hold { border-color: rgba(255,173,66,.34); background: rgba(255,173,66,.055); }
-.progression-cue.hold strong { color: #ffc36d; }
-.progression-cue.down { border-color: rgba(255,102,102,.36); background: rgba(255,102,102,.055); }
-.progression-cue.down strong { color: #ff9a9a; }
-.progression-cue.none strong { color: #aab6ae; }
-.last-session-summary { display: block; margin-top: 8px; color: #cfd8d2; font-weight: 700; }
+.exercise-name-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; min-width: 0; }
+.exercise-name-row h2 { min-width: 0; margin: 2px 0 3px; }
+.progression-pill { flex: 0 0 auto; display: inline-flex !important; align-items: center; gap: 4px; margin-top: 2px; padding: 5px 8px; border-radius: 999px; border: 1px solid #34443a; background: #101713; color: #aab6ae !important; font-size: 9px !important; font-weight: 850; line-height: 1; white-space: nowrap; text-transform: uppercase; letter-spacing: .025em; }
+.progression-pill-arrow { display: inline !important; margin: 0 !important; color: inherit !important; font-size: 12px !important; font-weight: 950; line-height: .8; }
+.progression-pill.up { color: var(--green) !important; border-color: rgba(112,228,72,.38); background: rgba(112,228,72,.075); }
+.progression-pill.hold { color: #ffc36d !important; border-color: rgba(255,173,66,.34); background: rgba(255,173,66,.06); }
+.progression-pill.down { color: #ff9a9a !important; border-color: rgba(255,102,102,.36); background: rgba(255,102,102,.06); }
+.progression-pill.none { color: #96a29a !important; }
+.last-session-summary { display: block; margin-top: 5px; color: #cfd8d2 !important; font-weight: 700; }
+@media (max-width: 430px) {
+  .progression-pill { padding: 4px 7px; font-size: 8px !important; }
+  .progression-pill-arrow { font-size: 11px !important; }
+}

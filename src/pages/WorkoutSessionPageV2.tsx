@@ -901,10 +901,6 @@ export function WorkoutSessionPageV2() {
             exerciseHistoryMetrics[String(exercise.exercise_id)],
             lastExerciseWeights[String(exercise.exercise_id)] ?? 0
           );
-          const liveBest = bestSetMetric(exercise.workout_sets ?? [], false);
-          const history = mergeBestMetrics(historicalHistory, liveBest);
-          const liveMetricAvailable = liveBest.estimatedOneRepMax > 0 || liveBest.loadPrWeight > 0;
-          const loadPrDuplicatesE1rm = history.loadPrWeight === history.prWeight && history.loadPrReps === history.prReps;
           const targetSets = Number(exercise.planned?.target_sets ?? exercise.workout_sets.length ?? 2);
           const repMin = Number(exercise.planned?.rep_min ?? 8);
           const repMax = Number(exercise.planned?.rep_max ?? 12);
@@ -916,16 +912,15 @@ export function WorkoutSessionPageV2() {
                 <div className="metric-icon"><Dumbbell /></div>
                 <div>
                   <span>{exercise.exercise?.primary_muscle} · {exercise.exercise?.equipment}</span>
-                  <h2>{exercise.exercise?.name || 'Ejercicio'}</h2>
-                  <small>Objetivo: {targetSets} × {repMin}–{repMax} · RIR {exercise.planned?.rir_target ?? 2}</small>
-                  <div className={'progression-cue ' + progression.action}>
-                    <span>PRÓXIMA SESIÓN</span>
-                    <strong>{progression.label}</strong>
-                    <small>{lastWeightsLoading ? 'Revisando tu sesión anterior…' : progression.reason}</small>
+                  <div className="exercise-name-row">
+                    <h2>{exercise.exercise?.name || 'Ejercicio'}</h2>
+                    <span className={'progression-pill ' + progression.action} title={progression.reason}>
+                      <span className="progression-pill-arrow" aria-hidden="true">{progression.action === 'up' ? '↑' : progression.action === 'down' ? '↓' : progression.action === 'hold' ? '→' : '•'}</span>
+                      {progression.action === 'up' ? 'Subir' : progression.action === 'down' ? 'Bajar' : progression.action === 'hold' ? 'Mantener' : 'Sin datos'}
+                    </span>
                   </div>
+                  <small>Objetivo: {targetSets} × {repMin}–{repMax} · RIR {exercise.planned?.rir_target ?? 2}</small>
                   <small className="last-session-summary">Última sesión: {lastWeightsLoading ? '…' : previousSession}</small>
-                  <small style={{ display: 'block', marginTop: 3 }}>Mejor serie histórica (e1RM): {lastWeightsLoading && !liveMetricAvailable ? '…' : history.prWeight > 0 ? formatWeightKg(history.estimatedOneRepMax) + ' kg · ' + formatWeightKg(history.prWeight) + ' kg × ' + history.prReps : 'Sin datos'}</small>
-                  {!loadPrDuplicatesE1rm && <small style={{ display: 'block', marginTop: 2 }}>Mayor carga histórica: {lastWeightsLoading && !liveMetricAvailable ? '…' : history.loadPrWeight > 0 ? formatWeightKg(history.loadPrWeight) + ' kg × ' + history.loadPrReps : 'Sin datos'}</small>}
                 </div>
                 <div className="exercise-actions">
                   <button className={exerciseCompleted ? 'secondary-button compact exercise-toggle active' : 'secondary-button compact exercise-toggle'} onClick={() => toggleExerciseComplete(exercise)}>{exerciseCompleted ? <RotateCcw size={15} /> : <CheckCircle2 size={15} />} {exerciseCompleted ? 'Desmarcar ejercicio' : 'Marcar ejercicio hecho'}</button>
