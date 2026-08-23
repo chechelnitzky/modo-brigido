@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
   statuses: write
@@ -36,6 +36,16 @@ jobs:
           rm -rf dist
           npm run build
           printf '%s\n' "$GITHUB_SHA" > dist/version.txt
+
+      - name: Persist workout exercise-library source upgrade
+        run: |
+          if ! git diff --quiet -- src/pages/WorkoutSessionPageV2.tsx; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add src/pages/WorkoutSessionPageV2.tsx
+            git commit -m "feat: integrate exercise library into workout session"
+            git push
+          fi
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
