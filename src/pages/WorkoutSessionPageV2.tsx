@@ -22,6 +22,7 @@ import type { Exercise } from '../types';
 const REST_SECONDS = 120;
 type TimerState = { remaining: number; endAt: number | null; running: boolean; finished: boolean };
 type LastExerciseWeights = Record<string, number>;
+type LastSetPerformance = { setNumber: number; weight: number; reps: number };
 type ExerciseHistoryMetric = {
   lastWeight: number;
   prWeight: number;
@@ -29,6 +30,8 @@ type ExerciseHistoryMetric = {
   estimatedOneRepMax: number;
   loadPrWeight: number;
   loadPrReps: number;
+  lastSets: LastSetPerformance[];
+  lastSessionDate: string | null;
 };
 type ExerciseHistoryMetrics = Record<string, ExerciseHistoryMetric>;
 type StoredSessionDraft = { updatedAt: number; session: any };
@@ -109,7 +112,7 @@ function weightsForSession(nextSession: any, source: LastExerciseWeights): LastE
 }
 
 function emptyHistoryMetric(lastWeight = 0): ExerciseHistoryMetric {
-  return { lastWeight, prWeight: 0, prReps: 0, estimatedOneRepMax: 0, loadPrWeight: 0, loadPrReps: 0 };
+  return { lastWeight, prWeight: 0, prReps: 0, estimatedOneRepMax: 0, loadPrWeight: 0, loadPrReps: 0, lastSets: [], lastSessionDate: null };
 }
 
 function normalizeHistoryMetric(value: any, fallbackLastWeight = 0): ExerciseHistoryMetric {
@@ -124,7 +127,11 @@ function normalizeHistoryMetric(value: any, fallbackLastWeight = 0): ExerciseHis
     prReps,
     estimatedOneRepMax: Number(value.estimatedOneRepMax) || 0,
     loadPrWeight: hasLoadPr ? Number(value.loadPrWeight) : prWeight,
-    loadPrReps: hasLoadPr ? Number(value.loadPrReps) || 0 : prReps
+    loadPrReps: hasLoadPr ? Number(value.loadPrReps) || 0 : prReps,
+    lastSets: Array.isArray(value.lastSets)
+      ? value.lastSets.map((set: any) => ({ setNumber: Number(set.setNumber) || 0, weight: Number(set.weight) || 0, reps: Number(set.reps) || 0 })).filter((set: LastSetPerformance) => set.setNumber > 0 && set.reps > 0)
+      : [],
+    lastSessionDate: typeof value.lastSessionDate === 'string' ? value.lastSessionDate : null
   };
 }
 
@@ -147,6 +154,52 @@ function lastCompletedWeight(workoutSets: any[]): number {
     if (Number.isFinite(weight) && weight >= 0) return weight;
   }
   return 0;
+}
+
+function completedSetSnapshots(workoutSets: any[]): LastSetPerformance[] {
+  return [...(workoutSets ?? [])]
+    .filter((set: any) => set.completed)
+    .sort((a: any, b: any) => Number(a.set_number) - Number(b.set_number))
+    .map((set: any) => ({ setNumber: Number(set.set_number), weight: Number(set.weight_kg), reps: Number(set.reps) }))
+    .filter((set: LastSetPerformance) => Number.isFinite(set.weight) && set.weight >= 0 && Number.isFinite(set.reps) && set.reps > 0);
+}
+
+type ProgressionCue = { action: 'up' | 'hold' | 'down' | 'none'; label: string; reason: string };
+
+function progressionCue(history: ExerciseHistoryMetric, targetSets: number, repMin: number, repMax: number): ProgressionCue {
+  const requiredSets = Math.max(1, targetSets);
+  const sets = history.lastSets.slice(0, requiredSets);
+  if (!sets.length) return { action: 'none', label: 'SIN DATOS', reason: 'Completa una sesión para recibir una recomendación de carga.' };
+
+  if (sets.some((set) => set.reps < repMin)) {
+    return { action: 'down', label: 'BAJAR PESO', reason: 'Al menos una serie quedó bajo el mínimo de ' + repMin + ' reps.' };
+  }
+
+  if (sets.length < requiredSets) {
+    return { action: 'hold', label: 'MANTENER', reason: 'Faltan series completas: ' + sets.length + '/' + requiredSets + '. Repite la carga antes de cambiarla.' };
+  }
+
+  const firstWeight = sets[0].weight;
+  const sameWeight = sets.every((set) => Math.abs(set.weight - firstWeight) < 0.001);
+  const allAtTop = sets.every((set) => set.reps >= repMax);
+
+  if (allAtTop && sameWeight) {
+    return { action: 'up', label: 'SUBIR PESO', reason: 'Completaste las ' + requiredSets + ' series en ' + repMax + ' reps o más con la misma carga.' };
+  }
+
+  if (allAtTop && !sameWeight) {
+    return { action: 'hold', label: 'MANTENER', reason: 'Llegaste al tope de reps, pero cambiaste la carga entre series. Repítela estable antes de subir.' };
+  }
+
+  return { action: 'hold', label: 'MANTENER', reason: 'Mantén la carga hasta llevar todas las series a ' + repMax + ' reps.' };
+}
+
+function lastSessionSummary(history: ExerciseHistoryMetric, targetSets: number): string {
+  const sets = history.lastSets.slice(0, Math.max(1, targetSets));
+  if (!sets.length) return 'Sin sesión anterior';
+  const sameWeight = sets.every((set) => Math.abs(set.weight - sets[0].weight) < 0.001);
+  if (sameWeight) return formatWeightKg(sets[0].weight) + ' kg × ' + sets.map((set) => set.reps).join(' / ');
+  return sets.map((set) => formatWeightKg(set.weight) + ' kg × ' + set.reps).join(' · ');
 }
 
 function bestSetMetric(workoutSets: any[], requireCompleted = true): ExerciseHistoryMetric {
@@ -196,6 +249,8 @@ function calculateExerciseHistoryMetrics(rows: any[], exerciseIds: number[]): Ex
 
       if (!lastWeightResolved.has(key)) {
         result[key].lastWeight = lastCompletedWeight(workoutExercise.workout_sets ?? []);
+        result[key].lastSets = completedSetSnapshots(workoutExercise.workout_sets ?? []);
+        result[key].lastSessionDate = workoutSession.finished_at ?? null;
         lastWeightResolved.add(key);
       }
 
@@ -776,7 +831,9 @@ export function WorkoutSessionPageV2() {
         prReps: best.prReps,
         estimatedOneRepMax: best.estimatedOneRepMax,
         loadPrWeight: best.loadPrWeight,
-        loadPrReps: best.loadPrReps
+        loadPrReps: best.loadPrReps,
+        lastSets: completedSetSnapshots(exercise.workout_sets ?? []),
+        lastSessionDate: nextSession.finished_at ?? new Date().toISOString()
       };
     }
 
@@ -848,6 +905,11 @@ export function WorkoutSessionPageV2() {
           const history = mergeBestMetrics(historicalHistory, liveBest);
           const liveMetricAvailable = liveBest.estimatedOneRepMax > 0 || liveBest.loadPrWeight > 0;
           const loadPrDuplicatesE1rm = history.loadPrWeight === history.prWeight && history.loadPrReps === history.prReps;
+          const targetSets = Number(exercise.planned?.target_sets ?? exercise.workout_sets.length ?? 2);
+          const repMin = Number(exercise.planned?.rep_min ?? 8);
+          const repMax = Number(exercise.planned?.rep_max ?? 12);
+          const progression = progressionCue(historicalHistory, targetSets, repMin, repMax);
+          const previousSession = lastSessionSummary(historicalHistory, targetSets);
           return (
             <article className={exerciseCompleted ? 'panel exercise-panel exercise-completed' : 'panel exercise-panel'} key={exercise.id}>
               <div className="exercise-title">
@@ -855,10 +917,15 @@ export function WorkoutSessionPageV2() {
                 <div>
                   <span>{exercise.exercise?.primary_muscle} · {exercise.exercise?.equipment}</span>
                   <h2>{exercise.exercise?.name || 'Ejercicio'}</h2>
-                  <small>Objetivo: {exercise.planned?.target_sets ?? exercise.workout_sets.length} × {exercise.planned?.rep_min ?? 8}–{exercise.planned?.rep_max ?? 12} · RIR {exercise.planned?.rir_target ?? 2}</small>
-                  <small style={{ display: 'block', marginTop: 4 }}>Última vez: {lastWeightsLoading ? '…' : `${formatWeightKg(history.lastWeight)} kg`}</small>
-                  <small style={{ display: 'block', marginTop: 2 }}>PR e1RM: {lastWeightsLoading && !liveMetricAvailable ? '…' : history.prWeight > 0 ? `${formatWeightKg(history.estimatedOneRepMax)} kg · ${formatWeightKg(history.prWeight)} kg × ${history.prReps}` : '0 kg'}</small>
-                  {!loadPrDuplicatesE1rm && <small style={{ display: 'block', marginTop: 2 }}>PR de carga: {lastWeightsLoading && !liveMetricAvailable ? '…' : history.loadPrWeight > 0 ? `${formatWeightKg(history.loadPrWeight)} kg × ${history.loadPrReps}` : '0 kg'}</small>}
+                  <small>Objetivo: {targetSets} × {repMin}–{repMax} · RIR {exercise.planned?.rir_target ?? 2}</small>
+                  <div className={'progression-cue ' + progression.action}>
+                    <span>PRÓXIMA SESIÓN</span>
+                    <strong>{progression.label}</strong>
+                    <small>{lastWeightsLoading ? 'Revisando tu sesión anterior…' : progression.reason}</small>
+                  </div>
+                  <small className="last-session-summary">Última sesión: {lastWeightsLoading ? '…' : previousSession}</small>
+                  <small style={{ display: 'block', marginTop: 3 }}>Mejor serie histórica (e1RM): {lastWeightsLoading && !liveMetricAvailable ? '…' : history.prWeight > 0 ? formatWeightKg(history.estimatedOneRepMax) + ' kg · ' + formatWeightKg(history.prWeight) + ' kg × ' + history.prReps : 'Sin datos'}</small>
+                  {!loadPrDuplicatesE1rm && <small style={{ display: 'block', marginTop: 2 }}>Mayor carga histórica: {lastWeightsLoading && !liveMetricAvailable ? '…' : history.loadPrWeight > 0 ? formatWeightKg(history.loadPrWeight) + ' kg × ' + history.loadPrReps : 'Sin datos'}</small>}
                 </div>
                 <div className="exercise-actions">
                   <button className={exerciseCompleted ? 'secondary-button compact exercise-toggle active' : 'secondary-button compact exercise-toggle'} onClick={() => toggleExerciseComplete(exercise)}>{exerciseCompleted ? <RotateCcw size={15} /> : <CheckCircle2 size={15} />} {exerciseCompleted ? 'Desmarcar ejercicio' : 'Marcar ejercicio hecho'}</button>

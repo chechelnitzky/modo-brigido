@@ -41,8 +41,8 @@
 .exercise-load-more { justify-self: center; min-width: 200px; }
 
 .exercise-detail { display: grid; gap: 17px; }
-.exercise-detail-media { width: min(100%, 430px); margin: 0 auto; border-radius: 20px; overflow: hidden; background: #f2f3ef; border: 1px solid #34443a; min-height: 220px; display: grid; place-items: center; }
-.exercise-detail-media img { width: 100%; max-height: 430px; object-fit: contain; display: block; }
+.exercise-detail-media { width: min(180px, 52vw); margin: 2px auto; border-radius: 18px; overflow: hidden; background: #f2f3ef; border: 1px solid #34443a; display: grid; place-items: center; }
+.exercise-detail-media img { width: 100%; max-height: 180px; object-fit: contain; display: block; image-rendering: auto; }
 .exercise-media-empty { color: #6f7d74; display: grid; place-items: center; gap: 8px; font-size: 12px; }
 .exercise-detail-tags { display: flex; flex-wrap: wrap; gap: 7px; }
 .exercise-badge { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #34443a; color: #b8c3bc; background: #101713; border-radius: 999px; padding: 6px 9px; font-size: 10px; }
@@ -94,3 +94,17 @@
   .exercise-library-list-actions { grid-column: 1 / -1; justify-content: stretch; }
   .exercise-library-list-actions button { flex: 1; }
 }
+
+
+.progression-cue { margin-top: 10px; width: min(100%, 390px); border: 1px solid #34443a; border-radius: 13px; padding: 9px 11px; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 2px 9px; background: #0d1410; }
+.progression-cue > span { grid-row: span 2; font-size: 8px; line-height: 1.15; letter-spacing: .1em; font-weight: 900; color: #7f8d84; writing-mode: vertical-rl; transform: rotate(180deg); }
+.progression-cue strong { font-size: 13px; letter-spacing: .035em; }
+.progression-cue small { color: #98a69d; font-size: 10px; line-height: 1.35; }
+.progression-cue.up { border-color: rgba(112,228,72,.42); background: rgba(112,228,72,.075); }
+.progression-cue.up strong { color: var(--green); }
+.progression-cue.hold { border-color: rgba(255,173,66,.34); background: rgba(255,173,66,.055); }
+.progression-cue.hold strong { color: #ffc36d; }
+.progression-cue.down { border-color: rgba(255,102,102,.36); background: rgba(255,102,102,.055); }
+.progression-cue.down strong { color: #ff9a9a; }
+.progression-cue.none strong { color: #aab6ae; }
+.last-session-summary { display: block; margin-top: 8px; color: #cfd8d2; font-weight: 700; }
