@@ -28,7 +28,7 @@ export function ExerciseDetailModal({ exercise, onClose }: Props) {
         <div className="exercise-detail-tags">
           {exercise.is_verified && <span className="exercise-badge verified"><BadgeCheck size={14} /> Verificado Bestia</span>}
           {exercise.is_recommended && <span className="exercise-badge recommended">Biblioteca Bestia</span>}
-          <span className="exercise-badge"><Target size={14} /> {muscleLabel(exercise.target_muscle) || exercise.primary_muscle}</span>
+          <span className="exercise-badge"><Target size={14} /> {exercise.primary_muscle}</span>
           <span className="exercise-badge"><Dumbbell size={14} /> {exercise.equipment}</span>
         </div>
 
