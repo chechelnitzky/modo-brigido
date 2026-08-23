@@ -1,6 +1,7 @@
 import { PlusCircle, Save, X } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { EXERCISE_BASIC_SELECT } from '../lib/exercises';
 import { cacheKeys, getCached, setCached } from '../lib/offline';
 import { getSupabase } from '../lib/supabase';
 import type { Exercise } from '../types';
@@ -81,9 +82,11 @@ export function ExerciseCreator({ onCreated, initialName = '', buttonLabel = 'Cr
         category: form.category,
         primary_muscle: primaryMuscle,
         pattern,
-        equipment
+        equipment,
+        source: 'custom',
+        quality_status: 'custom'
       })
-      .select('id,slug,name,category,primary_muscle,pattern,equipment,user_id')
+      .select(EXERCISE_BASIC_SELECT)
       .single();
 
     if (insertError || !data) {
