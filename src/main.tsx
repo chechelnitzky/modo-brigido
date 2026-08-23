@@ -10,6 +10,7 @@ import './features.css';
 import './selected-date-exercises.css';
 import './bodyfat-gauge.css';
 import './step-distance.css';
+import './exercise-library.css';
 
 const rootElement = document.getElementById('root');
 
