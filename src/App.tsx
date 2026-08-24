@@ -1,4 +1,5 @@
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { FatSecretAutoSync } from './components/FatSecretAutoSync';
 import { Layout } from './components/Layout';
 import { PacerAutoSync } from './components/PacerAutoSync';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -22,6 +23,7 @@ function AuthenticatedApp() {
   return (
     <SelectedDateProvider>
       <PacerAutoSync />
+      <FatSecretAutoSync />
       <HashRouter><Routes><Route element={<Layout />}>
         <Route path="/" element={<TodayPage />} />
         <Route path="/entreno" element={<WorkoutsPageV2 />} />
