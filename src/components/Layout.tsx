@@ -49,7 +49,7 @@ export function Layout() {
 
       <nav className="bottom-nav" aria-label="Navegación principal">
         {links.map(({ to, label, icon: Icon }) => (
-          <NavLink key={to} to={to} end={to === '/'} className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
+          <NavLink key={to} to={to} end={to === '/'} className={({ isActive }) => isActive || (to === '/entreno' && location.pathname === '/biblioteca') ? 'nav-item active' : 'nav-item'}>
             <Icon size={21} />
             <span>{label}</span>
           </NavLink>
