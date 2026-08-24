@@ -1,0 +1,68 @@
+.training-library-shortcut {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  max-width: 1180px;
+  margin: 0 auto 14px;
+  padding: 13px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(102,239,69,.2);
+  background: linear-gradient(90deg, rgba(46,91,52,.32), rgba(12,28,17,.72));
+  color: inherit;
+  text-decoration: none;
+}
+
+.training-library-shortcut:hover {
+  border-color: rgba(102,239,69,.42);
+}
+
+.training-library-shortcut .shortcut-copy {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+
+.training-library-shortcut .shortcut-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 13px;
+  flex: 0 0 auto;
+  color: #68ef49;
+  background: rgba(102,239,69,.1);
+}
+
+.training-library-shortcut strong,
+.training-library-shortcut span {
+  display: block;
+}
+
+.training-library-shortcut strong {
+  font-size: .92rem;
+}
+
+.training-library-shortcut span {
+  margin-top: 2px;
+  color: #91a097;
+  font-size: .77rem;
+}
+
+.training-library-shortcut .shortcut-arrow {
+  color: #68ef49;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 680px) {
+  .training-library-shortcut {
+    margin-bottom: 10px;
+    padding: 11px 13px;
+    border-radius: 16px;
+  }
+  .training-library-shortcut .shortcut-icon {
+    width: 35px;
+    height: 35px;
+  }
+}
