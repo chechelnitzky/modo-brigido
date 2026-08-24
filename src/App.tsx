@@ -1,4 +1,5 @@
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { FatSecretAutoSync } from './components/FatSecretAutoSync';
 import { Layout } from './components/Layout';
 import { PacerAutoSync } from './components/PacerAutoSync';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -14,6 +15,7 @@ import { SetupPage } from './pages/SetupPage';
 import { TodayPage } from './pages/TodayPage';
 import { WorkoutSessionPageV2 } from './pages/WorkoutSessionPageV2';
 import { WorkoutsPageV2 } from './pages/WorkoutsPageV2';
+import './nutrition-builder.css';
 
 function AuthenticatedApp() {
   const { session, loading } = useAuth();
@@ -22,6 +24,7 @@ function AuthenticatedApp() {
   return (
     <SelectedDateProvider>
       <PacerAutoSync />
+      <FatSecretAutoSync />
       <HashRouter><Routes><Route element={<Layout />}>
         <Route path="/" element={<TodayPage />} />
         <Route path="/entreno" element={<WorkoutsPageV2 />} />

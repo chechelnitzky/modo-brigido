@@ -1,0 +1,164 @@
+.nutrition-live-source {
+  display: inline-flex;
+  margin-top: 12px;
+  width: fit-content;
+  padding: 6px 9px;
+  border-radius: 999px;
+  color: #74f058;
+  background: rgba(102,239,69,.1);
+  border: 1px solid rgba(102,239,69,.18);
+  font-size: .72rem;
+  font-weight: 800;
+}
+
+.nutrition-refresh-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 7px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.1);
+  color: #cbd5cf;
+  background: rgba(255,255,255,.04);
+  font-size: .72rem;
+  font-weight: 800;
+}
+
+.fatsecret-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px 18px;
+  align-items: center;
+}
+
+.fatsecret-panel h2 { margin: 3px 0 6px; }
+.fatsecret-actions { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.fatsecret-panel .alert { grid-column: 1 / -1; margin: 0; }
+
+.meal-builder {
+  display: grid;
+  gap: 18px;
+  margin-top: 16px;
+}
+
+.builder-step {
+  display: grid;
+  gap: 12px;
+}
+
+.builder-step-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.builder-step-heading > span {
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #071109;
+  background: #66ef45;
+  font-weight: 950;
+}
+
+.builder-step-heading div { display: flex; flex-direction: column; gap: 2px; }
+.builder-step-heading strong { color: #f0f5f1; font-size: .96rem; }
+.builder-step-heading small { color: #8d9991; font-size: .76rem; }
+
+.builder-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.builder-choice-grid.compact {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.builder-choice {
+  min-height: 68px;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 16px;
+  padding: 10px 11px;
+  text-align: left;
+  background: rgba(7,17,11,.66);
+  color: #d2dad4;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  transition: .16s ease;
+}
+
+.builder-choice strong { font-size: .82rem; line-height: 1.18; }
+.builder-choice small { color: #849088; font-size: .68rem; line-height: 1.2; }
+.builder-choice.active {
+  border-color: rgba(102,239,69,.55);
+  background: rgba(72,145,54,.21);
+  box-shadow: inset 0 0 0 1px rgba(102,239,69,.08);
+}
+.builder-choice.active strong { color: #78f15b; }
+.builder-choice.active small { color: #b8c9bc; }
+
+.builder-target-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 14px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 16px;
+  background: rgba(255,255,255,.035);
+}
+.builder-target-strip span { color: #8d9991; font-size: .8rem; }
+.builder-target-strip strong { font-size: .88rem; color: #eef5ef; text-align: right; }
+
+.built-meal-card {
+  border: 1px solid rgba(102,239,69,.2);
+  border-radius: 24px;
+  padding: 18px;
+  background: linear-gradient(160deg, rgba(38,75,44,.72), rgba(8,20,12,.96) 68%);
+  box-shadow: 0 18px 42px rgba(0,0,0,.16);
+}
+
+.built-meal-card h3 {
+  margin: 0 0 15px;
+  font-size: 1.35rem;
+  letter-spacing: -.025em;
+}
+
+.built-meal-portions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.built-meal-portions > div {
+  border-radius: 16px;
+  background: rgba(255,255,255,.04);
+  padding: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.built-meal-portions span { color: #859189; font-size: .7rem; text-transform: uppercase; letter-spacing: .07em; font-weight: 800; }
+.built-meal-portions strong { color: #f1f6f2; font-size: .98rem; }
+.built-meal-portions small { color: #a0aaa3; font-size: .75rem; line-height: 1.35; }
+
+@media (max-width: 760px) {
+  .fatsecret-panel { grid-template-columns: 1fr; }
+  .fatsecret-actions { justify-content: flex-start; }
+  .builder-choice-grid, .builder-choice-grid.compact { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .builder-target-strip { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .builder-target-strip strong { text-align: left; }
+}
+
+@media (max-width: 420px) {
+  .builder-choice-grid, .builder-choice-grid.compact { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+  .builder-choice { min-height: 64px; padding: 9px; }
+  .built-meal-portions { grid-template-columns: 1fr; }
+}
