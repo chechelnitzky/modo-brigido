@@ -1,0 +1,5 @@
+/* Nutrición se enfoca en elegir/armar comidas. El resumen vive en Hoy y la integración en Ajustes. */
+.nutrition-summary-grid,
+.fatsecret-panel {
+  display: none !important;
+}
