@@ -1,14 +1,15 @@
-import { Activity, BarChart3, BookOpen, CalendarDays, CloudOff, CloudUpload, Dumbbell, Home, LogOut, MoreHorizontal, X } from 'lucide-react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { Activity, BarChart3, BookOpen, CalendarDays, ChevronRight, CloudOff, CloudUpload, Dumbbell, Home, LogOut, MoreHorizontal, UtensilsCrossed, X } from 'lucide-react';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedDate } from '../context/SelectedDateContext';
 import { useOfflineStatus } from '../hooks/useOfflineStatus';
 import { prettyDate } from '../lib/date';
+import '../navigation-enhancements.css';
 
 const links = [
   { to: '/', label: 'Hoy', icon: Home },
   { to: '/entreno', label: 'Entreno', icon: Dumbbell },
-  { to: '/biblioteca', label: 'Biblioteca', icon: BookOpen },
+  { to: '/nutricion', label: 'Nutrición', icon: UtensilsCrossed },
   { to: '/progreso', label: 'Progreso', icon: BarChart3 },
   { to: '/ajustes', label: 'Más', icon: MoreHorizontal }
 ];
@@ -16,6 +17,7 @@ const links = [
 export function Layout() {
   const { profile, signOut } = useAuth();
   const { selectedDate, isToday, resetToToday } = useSelectedDate();
+  const location = useLocation();
   const sync = useOfflineStatus();
   const SyncIcon = !sync.online ? CloudOff : sync.syncing || sync.pending > 0 ? CloudUpload : Activity;
   const syncText = !sync.online
@@ -37,7 +39,13 @@ export function Layout() {
         <button className="icon-button desktop-signout" onClick={signOut} title="Cerrar sesión"><LogOut size={20} /></button>
       </header>
 
-      <main className="content"><Outlet /></main>
+      <main className="content">
+        {location.pathname === '/entreno' && <Link className="training-library-shortcut" to="/biblioteca">
+          <div className="shortcut-copy"><div className="shortcut-icon"><BookOpen size={20} /></div><div><strong>Biblioteca de ejercicios</strong><span>Explora ejercicios, músculos, equipos y GIFs de ejecución.</span></div></div>
+          <ChevronRight className="shortcut-arrow" size={19} />
+        </Link>}
+        <Outlet />
+      </main>
 
       <nav className="bottom-nav" aria-label="Navegación principal">
         {links.map(({ to, label, icon: Icon }) => (
