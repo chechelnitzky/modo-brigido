@@ -16,6 +16,7 @@ import { TodayPage } from './pages/TodayPage';
 import { WorkoutSessionPageV2 } from './pages/WorkoutSessionPageV2';
 import { WorkoutsPageV2 } from './pages/WorkoutsPageV2';
 import './nutrition-builder.css';
+import './nutrition-cleanup.css';
 
 function AuthenticatedApp() {
   const { session, loading } = useAuth();
