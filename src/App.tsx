@@ -7,7 +7,7 @@ import { SelectedDateProvider } from './context/SelectedDateContext';
 import { getAppConfig } from './lib/config';
 import { AuthPage } from './pages/AuthPage';
 import { ExerciseLibraryPage } from './pages/ExerciseLibraryPage';
-import { NutritionPage } from './pages/NutritionPage';
+import { NutritionGateway } from './pages/NutritionGateway';
 import { ProgressPage } from './pages/ProgressPage';
 import { RoutineEditorPage } from './pages/RoutineEditorPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -31,7 +31,7 @@ function AuthenticatedApp() {
         <Route path="/sesion/:id" element={<WorkoutSessionPageV2 />} />
         <Route path="/rutinas" element={<RoutineEditorPage />} />
         <Route path="/biblioteca" element={<ExerciseLibraryPage />} />
-        <Route path="/nutricion" element={<NutritionPage />} />
+        <Route path="/nutricion" element={<NutritionGateway />} />
         <Route path="/progreso" element={<ProgressPage />} />
         <Route path="/ajustes" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
