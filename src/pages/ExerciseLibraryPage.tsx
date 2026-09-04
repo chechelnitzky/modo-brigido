@@ -49,13 +49,31 @@ export function ExerciseLibraryPage() {
         return;
       }
 
-      const { data, error: loadError } = await supabase
-        .from('exercise_library')
-        .select(EXERCISE_BASIC_SELECT)
-        .order('is_verified', { ascending: false })
-        .order('is_recommended', { ascending: false })
-        .order('recommendation_rank', { ascending: false })
-        .order('name');
+      const BATCH_SIZE = 1000;
+      const next: Exercise[] = [];
+      let from = 0;
+      let loadError: { message: string } | null = null;
+
+      while (true) {
+        const { data, error } = await supabase
+          .from('exercise_library')
+          .select(EXERCISE_BASIC_SELECT)
+          .order('is_verified', { ascending: false })
+          .order('is_recommended', { ascending: false })
+          .order('recommendation_rank', { ascending: false })
+          .order('name')
+          .range(from, from + BATCH_SIZE - 1);
+
+        if (error) {
+          loadError = error;
+          break;
+        }
+
+        const batch = (data ?? []) as Exercise[];
+        next.push(...batch);
+        if (batch.length < BATCH_SIZE) break;
+        from += BATCH_SIZE;
+      }
 
       if (cancelled) return;
       if (loadError) {
@@ -63,7 +81,6 @@ export function ExerciseLibraryPage() {
         setLoading(false);
         return;
       }
-      const next = (data ?? []) as Exercise[];
       setLibrary(next);
       await setCached(cacheKeys.exerciseLibrary, next);
       setLoading(false);
