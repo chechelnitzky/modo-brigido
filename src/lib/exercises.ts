@@ -48,8 +48,16 @@ export function bodyPartLabel(value?: string | null): string {
   return BODY_PART_LABELS[value.toLowerCase()] ?? value;
 }
 
+function normalizeExerciseSearch(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
 export function exerciseSearchText(exercise: Exercise): string {
-  return [
+  return normalizeExerciseSearch([
     exercise.name,
     exercise.primary_muscle,
     exercise.target_muscle,
@@ -59,12 +67,14 @@ export function exerciseSearchText(exercise: Exercise): string {
     exercise.equipment,
     exercise.pattern,
     exercise.category
-  ].filter(Boolean).join(' ').toLowerCase();
+  ].filter(Boolean).join(' '));
 }
 
 export function matchesExerciseSearch(exercise: Exercise, query: string): boolean {
-  const normalized = query.trim().toLowerCase();
-  return !normalized || exerciseSearchText(exercise).includes(normalized);
+  const terms = normalizeExerciseSearch(query).split(/\s+/).filter(Boolean);
+  if (!terms.length) return true;
+  const text = exerciseSearchText(exercise);
+  return terms.every((term) => text.includes(term));
 }
 
 export type RankedAlternative = {
