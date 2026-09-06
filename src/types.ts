@@ -31,6 +31,9 @@ export type DailyLog = {
   cannabis: boolean | null;
   calories: number | null;
   protein_g: number | null;
+  nutrition_source?: string | null;
+  nutrition_synced_at?: string | null;
+  nutrition_entries_count?: number | null;
   steps: number | null;
   manual_steps: number | null;
   notes: string | null;
