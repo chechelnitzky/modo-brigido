@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getSupabase } from '../lib/supabase';
 
 export type FatSecretDailyState = {
@@ -10,6 +10,12 @@ export type FatSecretDailyState = {
   loading: boolean;
   error: string;
 };
+
+const HISTORY_SYNC_DAYS = 30;
+
+function currentDateInChile() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' }).format(new Date());
+}
 
 const initialState: FatSecretDailyState = {
   configured: true,
@@ -24,6 +30,28 @@ const initialState: FatSecretDailyState = {
 export function useFatSecretDaily(date: string) {
   const supabase = getSupabase();
   const [state, setState] = useState<FatSecretDailyState>(initialState);
+  const historySyncStartedRef = useRef(false);
+
+  const syncRecent = useCallback(async (force = false) => {
+    if (historySyncStartedRef.current && !force) return;
+    historySyncStartedRef.current = true;
+    try {
+      const { data, error } = await supabase.functions.invoke('fatsecret-integration', {
+        body: {
+          action: 'sync_recent',
+          endDate: currentDateInChile(),
+          days: HISTORY_SYNC_DAYS,
+          force
+        }
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(String(data.error));
+      return data;
+    } catch (error) {
+      historySyncStartedRef.current = false;
+      throw error;
+    }
+  }, [supabase]);
 
   const refresh = useCallback(async (quiet = false) => {
     if (!quiet) setState((current) => ({ ...current, loading: true, error: '' }));
@@ -32,15 +60,21 @@ export function useFatSecretDaily(date: string) {
         body: { action: 'daily', date }
       });
       if (error) throw error;
+      const connected = Boolean(data?.connected);
       setState({
         configured: data?.configured !== false,
-        connected: Boolean(data?.connected),
+        connected,
         calories: data?.calories == null ? null : Number(data.calories),
         protein: data?.protein == null ? null : Number(data.protein),
         entriesCount: Number(data?.entriesCount ?? 0),
         loading: false,
         error: data?.error ? String(data.error) : ''
       });
+      if (connected && navigator.onLine && !historySyncStartedRef.current) {
+        void syncRecent().catch(() => {
+          // A later 5-minute refresh/focus can retry; today's diary remains usable.
+        });
+      }
     } catch (error) {
       setState((current) => ({
         ...current,
@@ -48,7 +82,7 @@ export function useFatSecretDaily(date: string) {
         error: error instanceof Error ? error.message : 'No se pudo leer FatSecret.'
       }));
     }
-  }, [supabase, date]);
+  }, [supabase, date, syncRecent]);
 
   useEffect(() => {
     void refresh();
@@ -83,5 +117,5 @@ export function useFatSecretDaily(date: string) {
     setState((current) => ({ ...current, connected: Boolean(data?.connected), calories: null, protein: null, entriesCount: 0 }));
   }, [supabase]);
 
-  return { ...state, refresh, connect, disconnect };
+  return { ...state, refresh, syncRecent, connect, disconnect };
 }
