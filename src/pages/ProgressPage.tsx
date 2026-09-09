@@ -250,9 +250,11 @@ export function ProgressPage() {
   const latestLog = logs.filter((log) => log.log_date <= todayKey).at(-1) ?? null;
   const latestBodyFat = metrics.bodyFatLogs.at(-1)?.estimate ?? null;
 
-  const weightChart = metrics.weightLogs.slice(-30);
-  const waistChart = metrics.waistLogs.slice(-30);
-  const bodyFatChart = metrics.bodyFatLogs.slice(-30);
+  // Los gráficos de progreso muestran todo el historial disponible desde
+  // el primer día con un registro útil; no se recortan a una ventana fija.
+  const weightChart = metrics.weightLogs;
+  const waistChart = metrics.waistLogs;
+  const bodyFatChart = metrics.bodyFatLogs;
   const weeklySteps = logs.slice(-7).map((log) => totalSteps(log));
   const weeklyStepsAverage = average(weeklySteps) ?? 0;
 
