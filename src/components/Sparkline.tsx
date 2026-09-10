@@ -14,8 +14,29 @@ type ChartPoint = {
   value: number;
 };
 
+type DateInfo = {
+  weekday: string;
+  weekdayIndex: number;
+};
+
+function dateInfoFromTooltipLabel(label?: string): DateInfo | null {
+  if (!label) return null;
+  const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(label.trim());
+  if (!match) return null;
+
+  const [, day, month, year] = match;
+  const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+  if (Number.isNaN(date.getTime())) return null;
+
+  return {
+    weekday: new Intl.DateTimeFormat('es-CL', { weekday: 'long', timeZone: 'UTC' }).format(date),
+    weekdayIndex: date.getUTCDay()
+  };
+}
+
 export function Sparkline({ values, labels, tooltipLabels, tooltipValues, ariaLabel = 'Gráfico de progreso' }: SparklineProps) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const isWeightChart = ariaLabel.toLowerCase().includes('peso');
 
   useEffect(() => {
     setSelectedIndex((current) => current !== null && current >= values.length ? null : current);
@@ -54,40 +75,58 @@ export function Sparkline({ values, labels, tooltipLabels, tooltipValues, ariaLa
     setSelectedIndex((current) => current === index ? null : index);
   };
 
+  const selectedBaseLabel = selectedIndex === null
+    ? ''
+    : tooltipLabels?.[selectedIndex] ?? labels?.[selectedIndex] ?? '';
+  const selectedDateInfo = isWeightChart ? dateInfoFromTooltipLabel(selectedBaseLabel) : null;
+  const selectedDisplayLabel = selectedDateInfo
+    ? `${selectedDateInfo.weekday}, ${selectedBaseLabel}`
+    : selectedBaseLabel;
+
   return (
     <div className="sparkline-wrap" style={{ position: 'relative' }}>
       <svg className="sparkline" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label={ariaLabel}>
         {values.length > 1 && <polyline className="sparkline-line" points={polylinePoints} />}
-        {points.map((point, index) => (
-          <g key={index}>
-            <circle
-              className="sparkline-dot"
-              cx={point.x}
-              cy={point.y}
-              r={selectedIndex === index ? 5.5 : 4}
-              style={selectedIndex === index ? { stroke: '#f2f6f3', strokeWidth: 2 } : undefined}
-              pointerEvents="none"
-            />
-            <circle
-              cx={point.x}
-              cy={point.y}
-              r="15"
-              fill="transparent"
-              stroke="transparent"
-              role="button"
-              tabIndex={0}
-              aria-label={`${tooltipLabels?.[index] ?? labels?.[index] ?? `Punto ${index + 1}`}: ${tooltipValues?.[index] ?? point.value}`}
-              style={{ cursor: 'pointer', outline: 'none' }}
-              onClick={() => togglePoint(index)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  togglePoint(index);
-                }
-              }}
-            />
-          </g>
-        ))}
+        {points.map((point, index) => {
+          const pointLabel = tooltipLabels?.[index] ?? labels?.[index] ?? `Punto ${index + 1}`;
+          const pointDateInfo = isWeightChart ? dateInfoFromTooltipLabel(pointLabel) : null;
+          const isWeekStart = pointDateInfo?.weekdayIndex === 0;
+          const isSelected = selectedIndex === index;
+
+          return (
+            <g key={index}>
+              <circle
+                className="sparkline-dot"
+                cx={point.x}
+                cy={point.y}
+                r={isSelected ? 5.5 : isWeekStart ? 4.8 : 4}
+                style={{
+                  ...(isWeekStart ? { fill: '#f5c451' } : {}),
+                  ...(isSelected ? { stroke: '#f2f6f3', strokeWidth: 2 } : {})
+                }}
+                pointerEvents="none"
+              />
+              <circle
+                cx={point.x}
+                cy={point.y}
+                r="15"
+                fill="transparent"
+                stroke="transparent"
+                role="button"
+                tabIndex={0}
+                aria-label={`${pointDateInfo ? `${pointDateInfo.weekday}, ` : ''}${pointLabel}: ${tooltipValues?.[index] ?? point.value}${isWeekStart ? ' · inicio de semana' : ''}`}
+                style={{ cursor: 'pointer', outline: 'none' }}
+                onClick={() => togglePoint(index)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    togglePoint(index);
+                  }
+                }}
+              />
+            </g>
+          );
+        })}
       </svg>
 
       {selectedPoint && selectedIndex !== null && (
@@ -100,7 +139,7 @@ export function Sparkline({ values, labels, tooltipLabels, tooltipValues, ariaLa
             transform: tooltipTransform,
             zIndex: 6,
             minWidth: 112,
-            maxWidth: 170,
+            maxWidth: 190,
             padding: '8px 10px',
             borderRadius: 11,
             border: '1px solid rgba(112,228,72,.55)',
@@ -114,7 +153,7 @@ export function Sparkline({ values, labels, tooltipLabels, tooltipValues, ariaLa
             {tooltipValues?.[selectedIndex] ?? selectedPoint.value}
           </strong>
           <span style={{ display: 'block', marginTop: 2, fontSize: 10, color: '#92a097', whiteSpace: 'nowrap' }}>
-            {tooltipLabels?.[selectedIndex] ?? labels?.[selectedIndex] ?? ''}
+            {selectedDisplayLabel}
           </span>
           <i
             aria-hidden="true"
