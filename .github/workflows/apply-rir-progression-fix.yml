@@ -1,0 +1,46 @@
+name: Apply RIR progression fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-rir-progression-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-build-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Apply progression patch
+        run: python .github/scripts/apply_rir_progression_fix.py
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build application
+        run: npm run build
+
+      - name: Remove one-time patch files
+        run: |
+          rm .github/scripts/apply_rir_progression_fix.py
+          rm .github/workflows/apply-rir-progression-fix.yml
+
+      - name: Commit validated fix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/pages/WorkoutSessionPageV2.tsx .github/scripts/apply_rir_progression_fix.py .github/workflows/apply-rir-progression-fix.yml
+          git commit -m 'Make load progression respect average RIR'
+          git push origin main
