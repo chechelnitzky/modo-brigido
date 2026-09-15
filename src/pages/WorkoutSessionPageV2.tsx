@@ -22,7 +22,7 @@ import type { Exercise } from '../types';
 const REST_SECONDS = 120;
 type TimerState = { remaining: number; endAt: number | null; running: boolean; finished: boolean };
 type LastExerciseWeights = Record<string, number>;
-type LastSetPerformance = { setNumber: number; weight: number; reps: number };
+type LastSetPerformance = { setNumber: number; weight: number; reps: number; rir: number | null };
 type ExerciseHistoryMetric = {
   lastWeight: number;
   prWeight: number;
@@ -129,7 +129,7 @@ function normalizeHistoryMetric(value: any, fallbackLastWeight = 0): ExerciseHis
     loadPrWeight: hasLoadPr ? Number(value.loadPrWeight) : prWeight,
     loadPrReps: hasLoadPr ? Number(value.loadPrReps) || 0 : prReps,
     lastSets: Array.isArray(value.lastSets)
-      ? value.lastSets.map((set: any) => ({ setNumber: Number(set.setNumber) || 0, weight: Number(set.weight) || 0, reps: Number(set.reps) || 0 })).filter((set: LastSetPerformance) => set.setNumber > 0 && set.reps > 0)
+      ? value.lastSets.map((set: any) => ({ setNumber: Number(set.setNumber) || 0, weight: Number(set.weight) || 0, reps: Number(set.reps) || 0, rir: numberOrNull(set.rir) })).filter((set: LastSetPerformance) => set.setNumber > 0 && set.reps > 0)
       : [],
     lastSessionDate: typeof value.lastSessionDate === 'string' ? value.lastSessionDate : null
   };
@@ -160,13 +160,13 @@ function completedSetSnapshots(workoutSets: any[]): LastSetPerformance[] {
   return [...(workoutSets ?? [])]
     .filter((set: any) => set.completed)
     .sort((a: any, b: any) => Number(a.set_number) - Number(b.set_number))
-    .map((set: any) => ({ setNumber: Number(set.set_number), weight: Number(set.weight_kg), reps: Number(set.reps) }))
+    .map((set: any) => ({ setNumber: Number(set.set_number), weight: Number(set.weight_kg), reps: Number(set.reps), rir: numberOrNull(set.rir) }))
     .filter((set: LastSetPerformance) => Number.isFinite(set.weight) && set.weight >= 0 && Number.isFinite(set.reps) && set.reps > 0);
 }
 
 type ProgressionCue = { action: 'up' | 'hold' | 'down' | 'none'; label: string; reason: string };
 
-function progressionCue(history: ExerciseHistoryMetric, targetSets: number, repMin: number, repMax: number): ProgressionCue {
+function progressionCue(history: ExerciseHistoryMetric, targetSets: number, repMin: number, repMax: number, targetRir: number): ProgressionCue {
   const requiredSets = Math.max(1, targetSets);
   const sets = history.lastSets.slice(0, requiredSets);
   if (!sets.length) return { action: 'none', label: 'SIN DATOS', reason: 'Completa una sesión para recibir una recomendación de carga.' };
@@ -182,9 +182,20 @@ function progressionCue(history: ExerciseHistoryMetric, targetSets: number, repM
   const firstWeight = sets[0].weight;
   const sameWeight = sets.every((set) => Math.abs(set.weight - firstWeight) < 0.001);
   const allAtTop = sets.every((set) => set.reps >= repMax);
+  const rirValues = sets.map((set) => set.rir).filter((rir): rir is number => rir !== null && Number.isFinite(rir));
+  const hasCompleteRir = rirValues.length === requiredSets;
+  const averageRir = hasCompleteRir ? rirValues.reduce((sum, rir) => sum + rir, 0) / rirValues.length : null;
 
-  if (allAtTop && sameWeight) {
-    return { action: 'up', label: 'SUBIR PESO', reason: 'Completaste las ' + requiredSets + ' series en ' + repMax + ' reps o más con la misma carga.' };
+  if (allAtTop && sameWeight && !hasCompleteRir) {
+    return { action: 'hold', label: 'MANTENER', reason: 'Llegaste al tope de reps, pero falta registrar el RIR de todas las series. Mantén la carga antes de subir.' };
+  }
+
+  if (allAtTop && sameWeight && averageRir !== null && averageRir >= targetRir) {
+    return { action: 'up', label: 'SUBIR PESO', reason: 'Completaste las ' + requiredSets + ' series en ' + repMax + ' reps o más con RIR promedio ' + formatRir(averageRir) + ' (objetivo ' + formatRir(targetRir) + ').' };
+  }
+
+  if (allAtTop && sameWeight && averageRir !== null) {
+    return { action: 'hold', label: 'MANTENER', reason: 'Llegaste al tope de reps, pero el RIR promedio fue ' + formatRir(averageRir) + ' y el objetivo es ' + formatRir(targetRir) + '. Mantén la carga hasta hacer las reps con ese margen.' };
   }
 
   if (allAtTop && !sameWeight) {
@@ -198,8 +209,12 @@ function lastSessionSummary(history: ExerciseHistoryMetric, targetSets: number):
   const sets = history.lastSets.slice(0, Math.max(1, targetSets));
   if (!sets.length) return 'Sin sesión anterior';
   const sameWeight = sets.every((set) => Math.abs(set.weight - sets[0].weight) < 0.001);
-  if (sameWeight) return formatWeightKg(sets[0].weight) + ' kg × ' + sets.map((set) => set.reps).join(' / ');
-  return sets.map((set) => formatWeightKg(set.weight) + ' kg × ' + set.reps).join(' · ');
+  const rirValues = sets.map((set) => set.rir).filter((rir): rir is number => rir !== null && Number.isFinite(rir));
+  const rirSummary = rirValues.length === sets.length
+    ? ' · RIR prom. ' + formatRir(rirValues.reduce((sum, rir) => sum + rir, 0) / rirValues.length)
+    : ' · RIR prom. —';
+  if (sameWeight) return formatWeightKg(sets[0].weight) + ' kg × ' + sets.map((set) => set.reps).join(' / ') + rirSummary;
+  return sets.map((set) => formatWeightKg(set.weight) + ' kg × ' + set.reps).join(' · ') + rirSummary;
 }
 
 function bestSetMetric(workoutSets: any[], requireCompleted = true): ExerciseHistoryMetric {
@@ -264,6 +279,10 @@ function calculateExerciseHistoryMetrics(rows: any[], exerciseIds: number[]): Ex
 
 function formatWeightKg(weight: number): string {
   return new Intl.NumberFormat('es-CL', { maximumFractionDigits: 2 }).format(Number.isFinite(weight) ? weight : 0);
+}
+
+function formatRir(rir: number): string {
+  return new Intl.NumberFormat('es-CL', { maximumFractionDigits: 1 }).format(Number.isFinite(rir) ? rir : 0);
 }
 
 function numberOrNull(value: unknown): number | null {
@@ -467,7 +486,7 @@ export function WorkoutSessionPageV2() {
     setLastWeightsLoading(true);
     const { data, error: historyError } = await supabase
       .from('workout_sessions')
-      .select(`id,finished_at,workout_exercises(exercise_id,workout_sets(set_number,weight_kg,reps,completed))`)
+      .select(`id,finished_at,workout_exercises(exercise_id,workout_sets(set_number,weight_kg,reps,rir,completed))`)
       .eq('user_id', user.id)
       .not('finished_at', 'is', null)
       .neq('id', id)
@@ -904,7 +923,8 @@ export function WorkoutSessionPageV2() {
           const targetSets = Number(exercise.planned?.target_sets ?? exercise.workout_sets.length ?? 2);
           const repMin = Number(exercise.planned?.rep_min ?? 8);
           const repMax = Number(exercise.planned?.rep_max ?? 12);
-          const progression = progressionCue(historicalHistory, targetSets, repMin, repMax);
+          const targetRir = Number(exercise.planned?.rir_target ?? 2);
+          const progression = progressionCue(historicalHistory, targetSets, repMin, repMax, targetRir);
           const previousSession = lastSessionSummary(historicalHistory, targetSets);
           return (
             <article className={exerciseCompleted ? 'panel exercise-panel exercise-completed' : 'panel exercise-panel'} key={exercise.id}>
@@ -919,7 +939,7 @@ export function WorkoutSessionPageV2() {
                       {progression.action === 'up' ? 'Subir' : progression.action === 'down' ? 'Bajar' : progression.action === 'hold' ? 'Mantener' : 'Sin datos'}
                     </span>
                   </div>
-                  <small>Objetivo: {targetSets} × {repMin}–{repMax} · RIR {exercise.planned?.rir_target ?? 2}</small>
+                  <small>Objetivo: {targetSets} × {repMin}–{repMax} · RIR {targetRir}</small>
                   <small className="last-session-summary">Última sesión: {lastWeightsLoading ? '…' : previousSession}</small>
                   <small className="history-pr-line">PR: {lastWeightsLoading ? '…' : historicalHistory.prWeight > 0 ? formatWeightKg(historicalHistory.prWeight) + ' kg × ' + historicalHistory.prReps + ' · e1RM ' + formatWeightKg(historicalHistory.estimatedOneRepMax) + ' kg' : 'Sin datos'}</small>
                 </div>
