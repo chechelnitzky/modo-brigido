@@ -109,7 +109,17 @@ function localizedNumber(value: number, decimals = 1): string {
   }).format(value);
 }
 
-function TrendDelta({ value, label }: { value: number | null; label: string }) {
+function TrendDelta({
+  value,
+  label,
+  colorOverride,
+  suffix
+}: {
+  value: number | null;
+  label: string;
+  colorOverride?: string;
+  suffix?: string | null;
+}) {
   if (value === null || !Number.isFinite(value)) {
     return <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: '#92a097', fontSize: 12 }}><Minus size={15} /><span>{label}: sin comparación</span></div>;
   }
@@ -118,12 +128,12 @@ function TrendDelta({ value, label }: { value: number | null; label: string }) {
   const isDown = rounded < 0;
   const isUp = rounded > 0;
   const Icon = isDown ? ArrowDown : isUp ? ArrowUp : Minus;
-  const color = isDown ? '#70e448' : isUp ? '#ffad42' : '#92a097';
+  const color = colorOverride ?? (isDown ? '#70e448' : isUp ? '#ffad42' : '#92a097');
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 7, color, fontSize: 12, fontWeight: 750 }}>
       <Icon size={16} />
-      <strong>{localizedNumber(Math.abs(rounded), 1)} kg</strong>
+      <strong>{localizedNumber(Math.abs(rounded), 1)} kg{suffix ? ` (${suffix})` : ''}</strong>
       <span style={{ color: '#92a097', fontWeight: 500 }}>{label}</span>
     </div>
   );
@@ -209,6 +219,9 @@ export function ProgressPage() {
     const firstWeight = weightLogs[0]?.weight_kg ?? null;
     const currentWeight = weightLogs.at(-1)?.weight_kg ?? null;
     const totalWeightChange = currentWeight !== null && firstWeight !== null ? Number(currentWeight) - Number(firstWeight) : null;
+    const totalWeightChangePercent = totalWeightChange !== null && firstWeight !== null && Number(firstWeight) !== 0
+      ? totalWeightChange / Number(firstWeight) * 100
+      : null;
     const firstWaist = waistLogs[0]?.waist_cm ?? null;
     const currentWaist = waistLogs.at(-1)?.waist_cm ?? null;
     const bodyFatLogs = profile
@@ -217,6 +230,14 @@ export function ProgressPage() {
           return estimate ? [{ log, estimate }] : [];
         })
       : [];
+    const firstBodyComposition = bodyFatLogs[0]?.estimate ?? null;
+    const currentBodyComposition = bodyFatLogs.at(-1)?.estimate ?? null;
+    const fatMassChange = firstBodyComposition && currentBodyComposition
+      ? currentBodyComposition.fatMassKg - firstBodyComposition.fatMassKg
+      : null;
+    const leanMassChange = firstBodyComposition && currentBodyComposition
+      ? currentBodyComposition.leanMassKg - firstBodyComposition.leanMassKg
+      : null;
 
     return {
       analysisLogs,
@@ -226,6 +247,9 @@ export function ProgressPage() {
       lastWeekAvg,
       weeklyRate,
       totalWeightChange,
+      totalWeightChangePercent,
+      fatMassChange,
+      leanMassChange,
       firstWeight,
       currentWeight,
       firstWaist,
@@ -297,10 +321,19 @@ export function ProgressPage() {
           tooltipLabels={weightChart.map((log) => fullDate(log.log_date))}
           tooltipValues={weightChart.map((log) => `${localizedNumber(Number(log.weight_kg), 1)} kg${log.carriedWeight ? ' · repetido' : ''}`)}
           ariaLabel="Evolución del peso"
+          referenceValue={93.6}
+          referenceValueLabel="93,6 kg"
+          referenceLabel="Mejor 2024"
         />
         <div style={{ display: 'grid', gap: 8, marginTop: 15, paddingTop: 13, borderTop: '1px solid rgba(255,255,255,.06)' }}>
           <TrendDelta value={metrics.weeklyRate} label="promedio en curso vs. última semana" />
-          <TrendDelta value={metrics.totalWeightChange} label="cambio total desde el inicio" />
+          <TrendDelta
+            value={metrics.totalWeightChange}
+            suffix={metrics.totalWeightChangePercent === null ? null : `${localizedNumber(Math.abs(metrics.totalWeightChangePercent), 1)}%`}
+            label="cambio total desde el inicio"
+          />
+          <TrendDelta value={metrics.fatMassChange} colorOverride="#f5c451" label="grasa estimada desde el inicio" />
+          <TrendDelta value={metrics.leanMassChange} colorOverride="#ff4d4f" label="masa magra estimada desde el inicio" />
         </div>
       </article>
 
@@ -315,6 +348,9 @@ export function ProgressPage() {
           tooltipLabels={waistChart.map((log) => fullDate(log.log_date))}
           tooltipValues={waistChart.map((log) => `${localizedNumber(Number(log.waist_cm), 1)} cm${log.carriedWaist ? ' · repetido' : ''}`)}
           ariaLabel="Evolución de la cintura"
+          referenceValue={96}
+          referenceValueLabel="96 cm"
+          referenceLabel="Mejor 2024"
         />
         <div className="chart-footer">
           <span>Desde {metrics.firstWaist ?? '—'} cm</span>
@@ -334,6 +370,9 @@ export function ProgressPage() {
         tooltipLabels={bodyFatChart.map((item) => fullDate(item.log.log_date))}
         tooltipValues={bodyFatChart.map((item) => `${localizedNumber(item.estimate.bodyFatPercentage, 1)}% grasa${item.log.carriedWeight || item.log.carriedWaist ? ' · repetido' : ''}`)}
         ariaLabel="Evolución del porcentaje de grasa corporal"
+        referenceValue={21.5}
+        referenceValueLabel="21,5%"
+        referenceLabel="Mejor 2024"
       />
       <div className="chart-footer">
         <span>Última estimación</span>
