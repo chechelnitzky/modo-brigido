@@ -6,6 +6,9 @@ type SparklineProps = {
   tooltipLabels?: string[];
   tooltipValues?: string[];
   ariaLabel?: string;
+  referenceValue?: number;
+  referenceLabel?: string;
+  referenceValueLabel?: string;
 };
 
 type ChartPoint = {
@@ -34,7 +37,16 @@ function dateInfoFromTooltipLabel(label?: string): DateInfo | null {
   };
 }
 
-export function Sparkline({ values, labels, tooltipLabels, tooltipValues, ariaLabel = 'Gráfico de progreso' }: SparklineProps) {
+export function Sparkline({
+  values,
+  labels,
+  tooltipLabels,
+  tooltipValues,
+  ariaLabel = 'Gráfico de progreso',
+  referenceValue,
+  referenceLabel,
+  referenceValueLabel
+}: SparklineProps) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const isWeightChart = ariaLabel.toLowerCase().includes('peso');
 
@@ -49,9 +61,13 @@ export function Sparkline({ values, labels, tooltipLabels, tooltipValues, ariaLa
   const width = 520;
   const height = 180;
   const padding = 18;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+  const scaleValues = referenceValue === undefined ? values : [...values, referenceValue];
+  const min = Math.min(...scaleValues);
+  const max = Math.max(...scaleValues);
   const spread = max - min || 1;
+  const referenceY = referenceValue === undefined
+    ? null
+    : height - padding - ((referenceValue - min) / spread) * (height - padding * 2);
   const points: ChartPoint[] = values.map((value, index) => {
     const x = values.length === 1
       ? width / 2
@@ -86,6 +102,19 @@ export function Sparkline({ values, labels, tooltipLabels, tooltipValues, ariaLa
   return (
     <div className="sparkline-wrap" style={{ position: 'relative' }}>
       <svg className="sparkline" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label={ariaLabel}>
+        {referenceY !== null && (
+          <line
+            x1={padding}
+            x2={width - padding}
+            y1={referenceY}
+            y2={referenceY}
+            stroke="#70e448"
+            strokeWidth="1.2"
+            strokeDasharray="5 5"
+            opacity=".9"
+            vectorEffect="non-scaling-stroke"
+          />
+        )}
         {values.length > 1 && <polyline className="sparkline-line" points={polylinePoints} />}
         {points.map((point, index) => {
           const pointLabel = tooltipLabels?.[index] ?? labels?.[index] ?? `Punto ${index + 1}`;
@@ -128,6 +157,47 @@ export function Sparkline({ values, labels, tooltipLabels, tooltipValues, ariaLa
           );
         })}
       </svg>
+
+      {referenceY !== null && (
+        <>
+          <span
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              left: 4,
+              top: `${(referenceY / height) * 100}%`,
+              transform: 'translateY(-115%)',
+              fontSize: 10,
+              lineHeight: 1,
+              color: '#70e448',
+              textShadow: '0 1px 2px rgba(0,0,0,.75)'
+            }}
+          >
+            {referenceValueLabel ?? referenceValue}
+          </span>
+          {referenceLabel && (
+            <span
+              aria-hidden="true"
+              style={{
+                position: 'absolute',
+                right: 4,
+                top: `${(referenceY / height) * 100}%`,
+                transform: 'translateY(-50%)',
+                padding: '4px 7px',
+                borderRadius: 8,
+                border: '1px solid rgba(112,228,72,.55)',
+                background: 'rgba(8,16,11,.94)',
+                color: '#70e448',
+                fontSize: 10,
+                lineHeight: 1,
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {referenceLabel}
+            </span>
+          )}
+        </>
+      )}
 
       {selectedPoint && selectedIndex !== null && (
         <div
