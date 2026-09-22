@@ -9,6 +9,7 @@ type SparklineProps = {
   referenceValue?: number;
   referenceLabel?: string;
   referenceValueLabel?: string;
+  compressDistantReference?: boolean;
 };
 
 type ChartPoint = {
@@ -45,7 +46,8 @@ export function Sparkline({
   ariaLabel = 'Gráfico de progreso',
   referenceValue,
   referenceLabel,
-  referenceValueLabel
+  referenceValueLabel,
+  compressDistantReference = true
 }: SparklineProps) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const isWeightChart = ariaLabel.toLowerCase().includes('peso');
@@ -61,22 +63,50 @@ export function Sparkline({
   const width = 520;
   const height = 180;
   const padding = 18;
-  const scaleValues = referenceValue === undefined ? values : [...values, referenceValue];
-  const min = Math.min(...scaleValues);
-  const max = Math.max(...scaleValues);
-  const spread = max - min || 1;
-  const referenceY = referenceValue === undefined
-    ? null
-    : height - padding - ((referenceValue - min) / spread) * (height - padding * 2);
+  const dataMin = Math.min(...values);
+  const dataMax = Math.max(...values);
+  const dataSpread = dataMax - dataMin || 1;
+
+  // Mientras el hito histórico siga muy por debajo del rango actual, no lo usamos
+  // para escalar la serie: así el gráfico conserva un zoom útil. La referencia
+  // se dibuja en una banda inferior temporal y baja junto con el progreso.
+  const referenceIsBelow = referenceValue !== undefined && referenceValue < dataMin;
+  const referenceDistance = referenceIsBelow && referenceValue !== undefined
+    ? dataMin - referenceValue
+    : 0;
+  const compressReference = Boolean(
+    compressDistantReference &&
+    referenceIsBelow &&
+    referenceDistance > dataSpread * 0.35
+  );
+
+  const scaleMin = referenceValue !== undefined && !compressReference
+    ? Math.min(dataMin, referenceValue)
+    : dataMin;
+  const scaleMax = referenceValue !== undefined && !compressReference
+    ? Math.max(dataMax, referenceValue)
+    : dataMax;
+  const scaleSpread = scaleMax - scaleMin || 1;
+
+  const dataTop = padding;
+  const dataBottom = compressReference ? height - padding - 30 : height - padding;
+  const dataHeight = dataBottom - dataTop;
+
   const points: ChartPoint[] = values.map((value, index) => {
     const x = values.length === 1
       ? width / 2
       : padding + (index / (values.length - 1)) * (width - padding * 2);
     const y = values.length === 1
-      ? height / 2
-      : height - padding - ((value - min) / spread) * (height - padding * 2);
+      ? (dataTop + dataBottom) / 2
+      : dataBottom - ((value - scaleMin) / scaleSpread) * dataHeight;
     return { x, y, value };
   });
+
+  const referenceY = referenceValue === undefined
+    ? null
+    : compressReference
+      ? Math.min(height - padding, dataBottom + 22)
+      : height - padding - ((referenceValue - scaleMin) / scaleSpread) * (height - padding * 2);
   const polylinePoints = points.map((point) => `${point.x},${point.y}`).join(' ');
   const selectedPoint = selectedIndex === null ? null : points[selectedIndex];
   const selectedXPercent = selectedPoint ? (selectedPoint.x / width) * 100 : 0;
@@ -173,7 +203,7 @@ export function Sparkline({
               textShadow: '0 1px 2px rgba(0,0,0,.75)'
             }}
           >
-            {referenceValueLabel ?? referenceValue}
+            {referenceValueLabel ?? referenceValue}{compressReference ? ' ↓' : ''}
           </span>
           {referenceLabel && (
             <span
@@ -190,10 +220,13 @@ export function Sparkline({
                 color: '#70e448',
                 fontSize: 10,
                 lineHeight: 1,
-                whiteSpace: 'nowrap'
+                whiteSpace: 'nowrap',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4
               }}
             >
-              {referenceLabel}
+              {referenceLabel}{compressReference ? <span aria-hidden="true">↓</span> : null}
             </span>
           )}
         </>
