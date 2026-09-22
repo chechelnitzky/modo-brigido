@@ -27,6 +27,10 @@ export function BodyCompositionCard({
   const markerPosition = scale && estimate
     ? Math.max(4, Math.min(96, estimate.bodyFatPercentage / scale.max * 100))
     : 0;
+  const historicalBestBodyFat = 21.5;
+  const historicalMarkerPosition = scale
+    ? Math.max(4, Math.min(96, historicalBestBodyFat / scale.max * 100))
+    : 0;
 
   return (
     <section className="panel bodyfat-panel">
@@ -60,6 +64,15 @@ export function BodyCompositionCard({
               <div className="bodyfat-scale-chart">
                 <div className="bodyfat-scale-marker" style={{ left: `${markerPosition}%` }}>
                   <span className="bodyfat-scale-marker-value">{estimate.bodyFatPercentage.toFixed(1)}%</span>
+                  <i aria-hidden="true" />
+                </div>
+
+                <div
+                  className="bodyfat-scale-history"
+                  style={{ left: `${historicalMarkerPosition}%` }}
+                  aria-label="Mejor 2024: 21,5% de grasa corporal"
+                >
+                  <span>Mejor 2024 · 21,5%</span>
                   <i aria-hidden="true" />
                 </div>
 
