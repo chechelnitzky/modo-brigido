@@ -67,6 +67,39 @@
   border-top: 8px solid #f5f8f6;
 }
 
+.bodyfat-scale-history {
+  position: absolute;
+  top: 17px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.bodyfat-scale-history span {
+  display: block;
+  padding: 3px 6px;
+  border: 1px solid rgba(112, 228, 72, .58);
+  border-radius: 8px;
+  color: var(--green);
+  background: rgba(5, 8, 6, .96);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .34);
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.bodyfat-scale-history i {
+  display: block;
+  height: 31px;
+  margin-top: 2px;
+  border-left: 2px dashed var(--green);
+  opacity: .95;
+}
+
 .bodyfat-scale-track {
   display: flex;
   width: 100%;
@@ -177,6 +210,19 @@
     min-width: 44px;
     padding: 4px 7px;
     font-size: 10px;
+  }
+
+  .bodyfat-scale-history {
+    top: 15px;
+  }
+
+  .bodyfat-scale-history span {
+    padding: 3px 5px;
+    font-size: 8px;
+  }
+
+  .bodyfat-scale-history i {
+    height: 28px;
   }
 
   .bodyfat-scale-boundaries {
